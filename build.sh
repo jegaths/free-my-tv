@@ -39,6 +39,8 @@ number() {
 LAT="$(number latitude 40.7128)"
 LON="$(number longitude -74.0060)"
 ASSIST=false; [ "$(prop disable_assistant false)" = "true" ] && ASSIST=true
+SETTINGS_BUTTON=false; [ "$(prop settings_button false)" = "true" ] && SETTINGS_BUTTON=true
+DASHBOARD=false; [ "$(prop keep_google_dashboard false)" = "true" ] && DASHBOARD=true
 CRYPTO=false; [ "$(prop show_crypto true)" = "true" ] && CRYPTO=true
 ANIMATION=false; [ "$(prop hide_animation false)" = "true" ] && ANIMATION=true
 
@@ -59,8 +61,12 @@ final class Config {
     static final String LANGUAGE = "$(prop language auto)";
     static final String CURRENCY = "$(prop currency USD)";
     static final String TEMPERATURE = "$(prop temperature auto)";
+    static final String THEME = "$(prop theme auto)";
     static final String HIDE_SERVICES = "$(prop hide_services '')";
+    static final String SHELF = "$(prop shelf '')";
     static final boolean DISABLE_ASSISTANT = $ASSIST;
+    static final boolean SETTINGS_BUTTON = $SETTINGS_BUTTON;
+    static final boolean KEEP_GOOGLE_DASHBOARD = $DASHBOARD;
     static final boolean SHOW_CRYPTO = $CRYPTO;
     static final boolean HIDE_ANIMATION = $ANIMATION;
 }

@@ -88,6 +88,7 @@ final class HomeApps {
         {"max", "HBO Max", "com.hbo.hbonow", "6C3BE0", "", "1.32"},
         {"appletv", "Apple TV", "com.apple.atve.androidtv.appletv", "B8BCC6", "", "1.1"},
         {"appletv", "Apple TV", "com.apple.atve.sony.appletv", "B8BCC6", "", "1.1"},   // Sony's own build
+        {"nuvio", "Nuvio", "com.nuvio.tv", "7B5CFF", "", "1"},
         {"hulu", "Hulu", "com.hulu.livingroomplus", "1CE783", "", "1"},
         {"paramount", "Paramount+", "com.cbs.ott", "0064FF", "", "1"},
         {"peacock", "Peacock", "com.peacocktv.peacockandroid", "6E55DC", "", "1"},
@@ -159,12 +160,20 @@ final class HomeApps {
         return null;
     }
 
-    /** The shelf's packages in order: the user's list (Settings > Shelf), or the built-in one. */
+    /** The shelf's packages in order: the user's list (Settings > Shelf), config.properties' "shelf", or the built-in one. */
     static List<String> shelfPackages(Context c) {
         List<String> custom = Prefs.shelf();
         if (custom != null) return custom;
         List<String> out = new ArrayList<>();
         PackageManager pm = c.getPackageManager();
+        // "shelf=youtube,nuvio,appletv": SHELF keys or package names, the ones on the TV, in that order.
+        for (String want : Config.SHELF.split(",")) {
+            String w = want.trim();
+            if (w.isEmpty() || out.size() >= MAX_SHELF) continue;
+            for (String[] d : SHELF) if (d[0].equals(w.toLowerCase(Locale.ROOT)) && launchIntent(pm, d[2]) != null && !out.contains(d[2])) out.add(d[2]);
+            if (launchIntent(pm, w) != null && !out.contains(w)) out.add(w);
+        }
+        if (!out.isEmpty()) return out;
         for (String[] d : SHELF) if (out.size() < MAX_SHELF && launchIntent(pm, d[2]) != null) out.add(d[2]);
         return out;
     }

@@ -113,19 +113,19 @@ public class SettingsActivity extends Activity {
     }
 
     static final class SettingsView extends View implements Choreographer.FrameCallback {
-        private static final int MAIN = 0, HOME_CHOICE = 1, HOME_SETTINGS = 2, REMOTE_KEYS = 3, PICKER = 4, SHELF_EDIT = 5;
+        private static final int MAIN = 0, HOME_CHOICE = 1, HOME_SETTINGS = 2, REMOTE_KEYS = 3, PICKER = 4, SHELF_EDIT = 5, PICKS = 6;
         private static final float LIST_ROW_H = 68, LIST_ROW_GAP = 6;
         private static final int PICK_VISIBLE = 9;
         private static final float LIST_X = 1000, LIST_R = 1824, LIST_TOP = 186, ROW_GAP = 8, CHOICE_H = 104;
         // The main menu: seven rows, then the comparison, the picks (with the Watchmode credit) and two notices, all on
         // one 1080 px screen.
-        private static final float MAIN_TOP = 140, ROW_H = 62, MAIN_GAP = 4;
+        private static final float MAIN_TOP = 124, ROW_H = 58, MAIN_GAP = 2;
         private static final int AMBER = 0xFFFFC266, INK = 0xFF1C1C1E;
 
         private final SettingsActivity activity;
         private final Scene scene = new Scene();
         private final Handler handler = new Handler(Looper.getMainLooper());
-        private final Spring[] pop = new Spring[12];
+        private final Spring[] pop = new Spring[16];
         private final List<String> appPkgs = new ArrayList<>(), appLabels = new ArrayList<>();
         // The list picker (the app of a remote button): what it shows, which one is in use, where we are.
         private final List<String> pickLabels = new ArrayList<>();
@@ -167,8 +167,9 @@ public class SettingsActivity extends Activity {
                     if (newest != null) announceForAccessibility(newest.optString("text"));
                 }
                 wasBusy = nowBusy;
+                pollLearning();
                 invalidate();
-                handler.postDelayed(this, busy() ? 500 : 2000);
+                handler.postDelayed(this, busy() || learnStartedAt != 0 ? 300 : 2000);
             }
         };
 
@@ -214,7 +215,7 @@ public class SettingsActivity extends Activity {
                                 : freeActive() ? "Free My TV" : Ui.tr("Original");
                         return Ui.trf("Home Screen, {mode}", "mode", value);
                     }
-                    String[] names = {Ui.tr("Screensaver, preview"), Ui.tr("Home Settings"),
+                    String[] names = {Ui.tr("Screensaver, preview"), Ui.tr("Home Settings"), Ui.tr("Picks"),
                             Ui.tr("Shelf"), Ui.tr("Top Buttons"), Ui.tr("Remote Buttons"), Ui.tr("TV Settings")};
                     return row - 1 < names.length ? names[row - 1] : "";
                 }
@@ -225,9 +226,9 @@ public class SettingsActivity extends Activity {
                     return name + (inUse ? Ui.tr(". In use") : "") + ", " + Ui.trf("{i} of {n}", "i", row + 1, "n", 2);
                 }
                 case HOME_SETTINGS:
-                case REMOTE_KEYS: {
-                    boolean keys = screen == REMOTE_KEYS;
-                    String[] labels = keys ? keyLabels() : settingLabels(), values = keys ? keyValues() : settingValues();
+                case REMOTE_KEYS:
+                case PICKS: {
+                    String[] labels = listLabels(), values = listValues();
                     return row < labels.length ? labels[row] + ", " + values[row] : "";
                 }
                 case PICKER: {
@@ -280,6 +281,7 @@ public class SettingsActivity extends Activity {
         }
 
         void pause() {
+            stopLearning();
             running = false;
             handler.removeCallbacks(poll);
             Choreographer.getInstance().removeFrameCallback(this);
@@ -341,12 +343,13 @@ public class SettingsActivity extends Activity {
 
         private int rowCount() {
             switch (screen) {
-                case MAIN: return 7;
+                case MAIN: return 8;
                 case HOME_CHOICE: return 2;
                 case HOME_SETTINGS: return settingLabels().length;
+                case PICKS: return picksLabels().length;
                 case PICKER: return Math.min(PICK_VISIBLE, pickLabels.size());
                 case SHELF_EDIT: return Math.min(PICK_VISIBLE, shelfRows.size());
-                default: return Prefs.KEYS.length;
+                default: return Prefs.keys().length + 1;   // Remote Buttons: the buttons, then "Add a button…"
             }
         }
 
@@ -382,9 +385,9 @@ public class SettingsActivity extends Activity {
             String busyText = busyText();
             String mode = freeActive() ? "Free My TV" : Ui.tr("Original");
             String[] labels = {Ui.tr("Home Screen"), Ui.tr("Screensaver"),
-                    Ui.tr("Home Settings"), Ui.tr("Shelf"), Ui.tr("Top Buttons"),
+                    Ui.tr("Home Settings"), Ui.tr("Picks"), Ui.tr("Shelf"), Ui.tr("Top Buttons"),
                     Ui.tr("Remote Buttons"), Ui.tr("TV Settings")};
-            String[] values = {working ? "" : mode, Ui.tr("Preview"), "", "", "", "", ""};
+            String[] values = {working ? "" : mode, Ui.tr("Preview"), "", "", "", "", "", ""};
             for (int i = 0; i < labels.length; i++) {
                 float y = (MAIN_TOP + i * (ROW_H + MAIN_GAP)) * k;
                 rowRect.set(LIST_X * k, y, LIST_R * k, y + ROW_H * k);
@@ -591,7 +594,7 @@ public class SettingsActivity extends Activity {
                     if (down && screen == SHELF_EDIT) {
                         moveShelfApp(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
                         invalidate();
-                    } else if (down && (screen == HOME_SETTINGS || screen == REMOTE_KEYS)) {
+                    } else if (down && (screen == HOME_SETTINGS || screen == REMOTE_KEYS || screen == PICKS)) {
                         adjust(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
                         invalidate();
                     }
@@ -616,11 +619,12 @@ public class SettingsActivity extends Activity {
                                 focus = pickFor == PICK_CITY ? CITY_ROW : 0;
                                 screen = HOME_SETTINGS;
                             } else if (screen == PICKER) {
-                                focus = pickFor - 1;
+                                focus = Math.min(pickFor - 1, Prefs.keys().length);
                                 screen = REMOTE_KEYS;
                             } else {
-                                focus = screen == HOME_SETTINGS ? 2 : screen == SHELF_EDIT ? (editingTop ? 4 : 3)
-                                        : screen == REMOTE_KEYS ? 5 : 0;
+                                stopLearning();
+                                focus = screen == HOME_SETTINGS ? 2 : screen == PICKS ? 3 : screen == SHELF_EDIT ? (editingTop ? 5 : 4)
+                                        : screen == REMOTE_KEYS ? 6 : 0;
                                 screen = MAIN;
                             }
                         }
@@ -691,7 +695,16 @@ public class SettingsActivity extends Activity {
             return on ? Ui.tr("On") : Ui.tr("Off");
         }
 
+        /** The brand's buttons, the learned ones, then the row that learns one more. */
         private String[] keyLabels() {
+            List<String> l = new ArrayList<>(java.util.Arrays.asList(brandKeyLabels()));
+            int[] keys = Prefs.keys();
+            for (int i = Prefs.KEYS.length; i < keys.length; i++) l.add(Prefs.keyName(keys[i]));
+            l.add(Ui.tr("Add a button…"));
+            return l.toArray(new String[0]);
+        }
+
+        private String[] brandKeyLabels() {
             if (RemoteKeys.STEM_NETFLIX) return new String[] {Ui.tr("Netflix button")};
             if (RemoteKeys.KTC) return new String[] {Ui.tr("Tabii button")};
             if (RemoteKeys.SONY) return new String[] {Ui.tr("BRAVIA CORE button"),
@@ -703,12 +716,51 @@ public class SettingsActivity extends Activity {
         }
 
         private String[] keyValues() {
-            String[] v = new String[Prefs.KEYS.length];
-            for (int i = 0; i < v.length; i++) {
-                int at = appPkgs.indexOf(Prefs.keyApp(Prefs.KEYS[i]));
+            int[] keys = Prefs.keys();
+            String[] v = new String[keys.length + 1];
+            for (int i = 0; i < keys.length; i++) {
+                int at = appPkgs.indexOf(Prefs.keyApp(keys[i]));
                 v[i] = at >= 0 ? appLabels.get(at) : Ui.tr("Not installed");
             }
+            v[keys.length] = learnStartedAt != 0 ? Ui.tr("Press the button on the remote…") : "";
             return v;
+        }
+
+        // MARK: - Learning a button
+
+        private long learnStartedAt;   // uptime when "Add a button…" was pressed; 0 = not learning
+
+        private void startLearning() {
+            Prefs.startLearning();
+            learnStartedAt = SystemClock.uptimeMillis();
+            HomeMode.ensureRemoteService(getContext(), 0);   // the key service records the button (on, in Free My TV mode)
+            handler.removeCallbacks(poll);
+            handler.post(poll);
+        }
+
+        private void stopLearning() {
+            if (learnStartedAt == 0) return;
+            learnStartedAt = 0;
+            Prefs.cancelLearning();
+        }
+
+        /** While learning: the button the service recorded gets an app picker; after 30 s, nothing. */
+        private void pollLearning() {
+            if (learnStartedAt == 0) return;
+            int[] got = Prefs.takeLearned();
+            if (got != null) {
+                learnStartedAt = 0;
+                Prefs.setKeyApp(got[0], got[1], "");
+                int[] keys = Prefs.keys();
+                for (int i = 0; i < keys.length; i++) {
+                    if (keys[i] == got[0]) {
+                        openPicker(i + 1);
+                        spoken.focusMoved();
+                    }
+                }
+            } else if (SystemClock.uptimeMillis() - learnStartedAt > 30_000) {
+                stopLearning();
+            }
         }
 
         /** Installed TV apps, by name, after "Nothing": what a remote button can open. */
@@ -731,11 +783,21 @@ public class SettingsActivity extends Activity {
 
         /** Changes the focused row's value one step (OK and → go forward, ← goes back). */
         private void adjust(int dir) {
+            if (screen == PICKS) {
+                if (picksNuvio && focus == 0) Prefs.setNuvio(!Prefs.nuvio());
+                else if (focus - (picksNuvio ? 1 : 0) < picksServices.size()) {
+                    String key = picksServices.get(focus - (picksNuvio ? 1 : 0))[0];
+                    Prefs.setPickSource(key, !Prefs.pickSource(key));
+                }
+                return;
+            }
             if (screen == REMOTE_KEYS) {
+                int[] keys = Prefs.keys();
+                if (focus >= keys.length) return;   // "Add a button…": OK starts it
                 int n = appPkgs.size();
-                int at = appPkgs.indexOf(Prefs.keyApp(Prefs.KEYS[focus]));
+                int at = appPkgs.indexOf(Prefs.keyApp(keys[focus]));
                 int next = at < 0 ? (dir > 0 ? 0 : n - 1) : (at + dir + n) % n;
-                Prefs.setKeyApp(Prefs.KEYS[focus], appPkgs.get(next));
+                Prefs.setKeyApp(keys[focus], appPkgs.get(next));
                 return;
             }
             switch (focus) {
@@ -819,6 +881,33 @@ public class SettingsActivity extends Activity {
 
         private int listSize() {
             return screen == SHELF_EDIT ? shelfRows.size() : pickLabels.size();
+        }
+
+        // MARK: - Picks
+
+        private final List<String[]> picksServices = new ArrayList<>();   // {key, name} of the services on the TV
+        private boolean picksNuvio;   // Nuvio is on the TV: its row comes first
+
+        private void openPicks() {
+            picksServices.clear();
+            picksServices.addAll(Recs.servicesOnTv(getContext()));
+            picksNuvio = Recs.nuvioOnTv(getContext());
+            screen = PICKS;
+            focus = 0;
+        }
+
+        private String[] picksLabels() {
+            List<String> l = new ArrayList<>();
+            if (picksNuvio) l.add(Ui.tr("Other titles in Nuvio"));
+            for (String[] s : picksServices) l.add(Ui.trf("Picks from {service}", "service", s[1]));
+            return l.toArray(new String[0]);
+        }
+
+        private String[] picksValues() {
+            List<String> v = new ArrayList<>();
+            if (picksNuvio) v.add(onOff(Prefs.nuvio()));
+            for (String[] s : picksServices) v.add(onOff(Prefs.pickSource(s[0])));
+            return v.toArray(new String[0]);
         }
 
         // MARK: - Shelf editor
@@ -921,7 +1010,8 @@ public class SettingsActivity extends Activity {
                 pickCurrent = java.util.Arrays.asList(choices).indexOf(Prefs.language());
             } else {
                 pickLabels.addAll(appLabels);
-                pickCurrent = appPkgs.indexOf(Prefs.keyApp(Prefs.KEYS[which - 1]));
+                pickCurrent = appPkgs.indexOf(Prefs.keyApp(Prefs.keys()[which - 1]));
+                if (which - 1 >= Prefs.KEYS.length) pickLabels.add(Ui.tr("Remove this button"));   // a learned one
             }
             int visible = Math.min(PICK_VISIBLE, pickLabels.size());
             int at = Math.max(0, pickCurrent);
@@ -955,19 +1045,27 @@ public class SettingsActivity extends Activity {
                     LIST_X * k + 30 * k, hy, hint);
         }
 
+        private String[] listLabels() {
+            return screen == REMOTE_KEYS ? keyLabels() : screen == PICKS ? picksLabels() : settingLabels();
+        }
+
+        private String[] listValues() {
+            return screen == REMOTE_KEYS ? keyValues() : screen == PICKS ? picksValues() : settingValues();
+        }
+
         private void drawList(Canvas c) {
             boolean keys = screen == REMOTE_KEYS;
-            String[] labels = keys ? keyLabels() : settingLabels();
-            String[] values = keys ? keyValues() : settingValues();
+            String[] labels = listLabels();
+            String[] values = listValues();
             Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
-            c.drawText(keys ? Ui.tr("Remote Buttons") : Ui.tr("Home Settings"),
+            c.drawText(keys ? Ui.tr("Remote Buttons") : screen == PICKS ? Ui.tr("Picks") : Ui.tr("Home Settings"),
                     LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             for (int i = 0; i < labels.length; i++) {
                 float y = (LIST_TOP + 20 + i * (LIST_ROW_H + LIST_ROW_GAP)) * k;
                 rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
                 float f = drawRowBackground(c, i);
                 rowLabel.setColor(blend(0xF2FFFFFF, INK, f));
-                boolean locked = !keys && i >= COIN_ROWS && !Prefs.quotes();
+                boolean locked = screen == HOME_SETTINGS && i >= COIN_ROWS && !Prefs.quotes();
                 rowValue.setColor(blend(locked ? 0x59FFFFFF : 0xB3FFFFFF, locked ? 0x591C1C1E : 0xB31C1C1E, f));
                 if (locked) rowLabel.setColor(blend(0x73FFFFFF, 0x731C1C1E, f));
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
@@ -984,6 +1082,13 @@ public class SettingsActivity extends Activity {
                         : RemoteKeys.FORMOVIE ? Ui.tr("The other buttons: the TV itself controls them.")
                         : RemoteKeys.supported() ? Ui.tr("Disney and Globoplay: the TV itself controls those buttons.")
                         : Ui.tr("TCL remote buttons: on this TV they work as always."), LIST_X * k + 30 * k, hy + 38 * k, hint);
+                c.drawText(Ui.tr("Add a button: press it on the remote, then pick what it opens (in Free My TV mode)."),
+                        LIST_X * k + 30 * k, hy + 76 * k, hint);
+            }
+            if (screen == PICKS) {
+                c.drawText(labels.length == 0 ? Ui.tr("None of the TV's streaming apps can give picks.")
+                        : Ui.tr("Only the services that are on give picks."), LIST_X * k + 30 * k, hy + 38 * k, hint);
+                if (picksNuvio) c.drawText(Ui.tr("With Nuvio on, titles on none of them open in Nuvio."), LIST_X * k + 30 * k, hy + 76 * k, hint);
             }
         }
 
@@ -1010,14 +1115,24 @@ public class SettingsActivity extends Activity {
                 screen = HOME_SETTINGS;
             } else if (screen == PICKER) {
                 int at = pickScroll + focus;
-                Prefs.setKeyApp(Prefs.KEYS[pickFor - 1], appPkgs.get(at));
-                focus = pickFor - 1;
+                int key = Prefs.keys()[pickFor - 1];
+                if (at >= appPkgs.size()) Prefs.removeKey(key); else Prefs.setKeyApp(key, appPkgs.get(at));
+                focus = Math.min(pickFor - 1, Prefs.keys().length);
                 screen = REMOTE_KEYS;
             } else if (screen == SHELF_EDIT) {
                 toggleShelfApp();
                 invalidate();
                 return;
+            } else if (screen == PICKS) {
+                adjust(1);
+                invalidate();
+                return;
             } else if (screen == REMOTE_KEYS) {
+                if (focus >= Prefs.keys().length) {
+                    if (learnStartedAt == 0) startLearning(); else stopLearning();
+                    invalidate();
+                    return;
+                }
                 openPicker(focus + 1);
             } else if (screen == HOME_SETTINGS && focus == 0) {
                 openPicker(PICK_LANGUAGE);
@@ -1039,10 +1154,12 @@ public class SettingsActivity extends Activity {
                 screen = HOME_SETTINGS;
                 focus = 0;
             } else if (focus == 3) {
-                openShelfEditor(false);
+                openPicks();
             } else if (focus == 4) {
-                openShelfEditor(true);
+                openShelfEditor(false);
             } else if (focus == 5) {
+                openShelfEditor(true);
+            } else if (focus == 6) {
                 HomeMode.ensureRemoteService(c, 0);   // the buttons work from inside other apps through this service
                 loadApps();
                 screen = REMOTE_KEYS;

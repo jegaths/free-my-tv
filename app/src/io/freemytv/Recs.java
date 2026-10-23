@@ -79,6 +79,8 @@ final class Recs {
         {"crunchyroll", "crunchyroll", "com.crunchyroll.crunchyroid"},
         {"oneplay", "oneplay", "net.cme.voyo.cz.tvapp"},    // Czechia: Voyo and O2 TV became Oneplay, same app
     };
+    /** Nuvio, a Stremio-compatible player, plays almost anything: with it on, titles on none of the services open there. */
+    static final String NUVIO = "com.nuvio.tv", NUVIO_KEY = "nuvio";
     private static final Map<String, String> SERVICE_NAME = new HashMap<>();
     static {
         SERVICE_NAME.put("netflix", "Netflix");
@@ -94,6 +96,7 @@ final class Recs {
         SERVICE_NAME.put("okko", "Okko");
         SERVICE_NAME.put("crunchyroll", "Crunchyroll");
         SERVICE_NAME.put("oneplay", "Oneplay");
+        SERVICE_NAME.put(NUVIO_KEY, "Nuvio");
     }
     /** Country for "what streams where" (config.properties "tmdb_region", e.g. US, GB, BR). */
     static final String REGION = Config.TMDB_REGION.trim().toUpperCase(Locale.ROOT);
@@ -387,7 +390,8 @@ final class Recs {
 
     private void fetchList(int p) throws Exception {
         // None of the services we know is on the TV (or hide_services hides them all): no region would change that.
-        boolean any = false;
+        boolean nuvio = nuvio();
+        boolean any = nuvio;
         for (String[] s : SERVICES) any |= installed(s[2]);
         if (!any) throw new IOException(NO_KNOWN_APPS);
         // The services the TV has, by their TMDB ids in your region.
@@ -398,11 +402,12 @@ final class Recs {
             String[] s = service(o.optString("provider_name"));
             if (s != null && installed(s[2])) services.put(o.getInt("provider_id"), s);
         }
-        if (services.isEmpty()) throw new IOException(NO_APPS);
+        if (services.isEmpty() && !nuvio) throw new IOException(NO_APPS);
         StringBuilder ids = new StringBuilder();
         for (int id : services.keySet()) ids.append(ids.length() == 0 ? "" : "|").append(id);
-        String common = "&language=" + lang() + "&watch_region=" + REGION + "&with_watch_monetization_types=flatrate&include_adult=false"
-                + "&sort_by=popularity.desc&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8")
+        // With Nuvio on, the releases on any service (it plays them); otherwise only the ones on the TV's services.
+        String common = "&language=" + lang() + "&watch_region=" + REGION + "&include_adult=false&sort_by=popularity.desc"
+                + (nuvio ? "" : "&with_watch_monetization_types=flatrate&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8"))
                 + (Config.HIDE_ANIMATION ? "&without_genres=" + ANIMATION : "");
         // 1. Trending this week (TMDB goes by what people are watching and searching for right now), only what is
         //    on one of the TV's services: the details say where (and are then ready).
@@ -515,6 +520,11 @@ final class Recs {
                 p.pkg = s[2];
             }
         }
+        if (p.app == null && nuvio()) {   // on none of the TV's services: Nuvio opens it by its TMDB number
+            p.app = NUVIO_KEY;
+            p.pkg = NUVIO;
+            p.link = "nuvio://tmdb/" + p.kind + "/" + p.id;
+        }
         if (p.app != null) parts.add(SERVICE_NAME.get(p.app));
         p.meta = String.join(" · ", parts);
         p.detailed = true;
@@ -596,16 +606,40 @@ final class Recs {
         }
     }
 
-    /** The service's app is on the TV, and the service isn't hidden (an app the TV ships without a subscription, say). */
+    /** A service named in hide_services starts off in Settings > Picks (an app the TV ships without a subscription, say). */
+    static boolean hiddenByConfig(String key) {
+        return HIDDEN.contains(key);
+    }
+
+    /** The service's app is on the TV and the service is on in Settings > Picks (Nuvio: "Other titles in Nuvio"). */
     private boolean installed(String pkg) {
-        if (!HIDDEN.isEmpty()) for (String[] s : SERVICES) if (s[2].equals(pkg) && HIDDEN.contains(s[1])) return false;
+        if (pkg.equals(NUVIO)) return nuvio();
+        for (String[] s : SERVICES) if (s[2].equals(pkg) && !Prefs.pickSource(s[1])) return false;
         return HomeApps.launchIntent(context.getPackageManager(), pkg) != null;
+    }
+
+    private boolean nuvio() {
+        return Prefs.nuvio() && nuvioOnTv(context);
+    }
+
+    static boolean nuvioOnTv(Context c) {
+        return HomeApps.launchIntent(c.getPackageManager(), NUVIO) != null;
+    }
+
+    /** The services whose app is on the TV, as {key, name}, each once, in SERVICES order: the rows of Settings > Picks. */
+    static List<String[]> servicesOnTv(Context c) {
+        List<String[]> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (String[] s : SERVICES) {
+            if (HomeApps.launchIntent(c.getPackageManager(), s[2]) != null && seen.add(s[1])) out.add(new String[] {s[1], SERVICE_NAME.get(s[1])});
+        }
+        return out;
     }
 
     private long sourceStamp() {
         long stamp = (Config.TMDB_KEY.hashCode() * 31L + REGION.hashCode()) * 31L + (Config.HIDE_ANIMATION ? 1 : 0);
         for (String[] service : SERVICES) stamp = stamp * 31L + (installed(service[2]) ? service[2].hashCode() : 0);
-        return stamp;
+        return stamp * 31L + (nuvio() ? 1 : 0);
     }
 
     // MARK: - Watchmode (the title's own page in its app; the free plan's web addresses are what the apps open)

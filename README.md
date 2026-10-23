@@ -19,12 +19,12 @@ Open source. Built with Claude Code. One button to undo.
 
 - **No ads.** No sponsored rows, banners or autoplaying promos. Not one.
 - **Your apps, front and center.** The streaming apps you actually use, on a glass shelf. Pick them and their order right on the TV.
-- **Trending, not sponsored.** Three fresh picks every hour from what's trending this week and the latest releases, only from apps you already have. Movies and Shows get their own tabs.
+- **Trending, not sponsored.** Three fresh picks every hour from what's trending this week and the latest releases, only from apps you already have. Movies and Shows get their own tabs. *Picks* on the TV chooses which apps; with [Nuvio](https://github.com/NuvioMedia/NuvioTV) on the TV, titles on none of them open there.
 - **Weather and markets, one press away.** The hour-by-hour forecast, sunrise and sunset, and live crypto prices.
 - **Light by day, dark by night.** It follows your city's real sunset, the way your phone does.
 - **A screensaver to match.** Full-screen photos of the picks with a big glass clock.
 - **Fast.** 60 fps, every frame in 16.6 ms, on the TV's own chip. The home screen uses 96 MB of memory instead of 242 MB (−60%).<br><sub>Measured on a 98″ TCL Google TV running Android 14.</sub>
-- **Set up on the TV.** Language, your city, temperature, theme, the weather and prices cards, which coins, and the apps on the shelf, in Free My TV's own settings.
+- **Set up on the TV.** Language, your city, temperature, theme, the weather and prices cards, which coins, and the apps on the shelf, in Free My TV's own settings. Any button on the remote can open the app you choose: *Remote Buttons* → *Add a button*, press it, pick the app.
 - **Safe.** No root. Nothing is uninstalled. One button brings back the factory home screen.
 
 ## Install
@@ -116,8 +116,12 @@ The first values come from `config.properties`, created by the first build (Goog
 | `show_crypto` | Show Binance crypto prices on home and screensaver | `true` |
 | `currency` | Crypto prices in `USD`, `EUR`, `BRL`… | `USD` |
 | `temperature` | `C`, `F` or `auto` | `auto` |
+| `theme` | `auto` (light by day, dark from sunset to sunrise), `light` or `dark` | `auto` |
 | `disable_assistant` | Also turn off Google Assistant | `false` |
-| `hide_services` | Streaming services to leave out of the picks even when their app is on the TV (`netflix`, `prime`, `disney`…), comma separated; for apps the TV ships that you don't subscribe to. Google TV only | empty |
+| `settings_button` | The remote's settings (dashboard) button opens the TV's Settings in Free My TV mode: Google's panel goes off with its home screen. Already so on TCL, KTC, Vestel and Sony TVs | `false` |
+| `keep_google_dashboard` | Keep Google TV's home app on for its quick settings panel and notifications; Free My TV's key service then takes the Home button, since Google's home always wins it while on. Google's app keeps running in the background | `false` |
+| `hide_services` | Streaming services to leave out of the picks even when their app is on the TV (`netflix`, `prime`, `disney`…), comma separated; for apps the TV ships that you don't subscribe to. The first value of *Picks* on the TV. Google TV only | empty |
+| `shelf` | The shelf's first order (`youtube,nuvio,appletv`…), by key or package name; *Shelf* on the TV wins. Google TV only | built-in order |
 | `hide_apps` | Apps to leave out of the shelf, All Apps and the picks, by id or name (part of it), comma separated; for apps the TV ships that can't be uninstalled, like Samsung's built-in Netflix. LG and Samsung only | empty |
 
 Changed something? Run `./build.sh` and install again. Keep `freemytv.keystore`: updates are signed with it.

@@ -147,6 +147,10 @@ Then, in the code:
   (the layer under HDMI and the tuner: off, inputs show "No signal") or receives the remote's Input key
   (`fusion.android.tv.demo` does on several MediaTek boards).
 - `HomeApps.SHELF`, `LIVE_TV_APPS` and `HIDDEN`: the shelf apps, the brand's live TV app, apps to hide from All Apps.
+- Picks come from the services on in *Free My TV* → *Picks* (`Prefs.pickSource`; `hide_services` gives the first values).
+  Nuvio (`com.nuvio.tv`, a Stremio-compatible player) isn't on TMDB: with *Other titles in Nuvio* on (`Prefs.nuvio`), the
+  picks aren't limited to the TV's services, and a title on none of them opens in Nuvio by its TMDB number
+  (`nuvio://tmdb/movie/<id>`, `nuvio://tmdb/tv/<id>`; Nuvio holds the link until a profile is picked). Google TV only.
 - Build, install, have them switch on the TV, read `adb logcat -s FreeMyTV`, then have them switch back to
   *Original* once and confirm everything returned.
 
@@ -197,6 +201,9 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
   Vestel, KTC (NextStar) and Sony TVs and Formovie projectors, the service is on only in Free My TV mode, and *Original* takes it out of the enabled accessibility
   services. The system waits for the service on every key, so it lives alone in the `:keys` process: what it reads is
   in `remote-keys.txt` (`Prefs.keyApp`), never in SharedPreferences, and `onKeyEvent` does no heavy work.
+  Any other button is learned on the TV (*Remote Buttons* → *Add a button…*): Settings leaves a mark file, the service
+  records the next key (by scan code, `Prefs.SCAN_KEY` + scan, since buttons can share a key code) and Settings opens
+  the app picker for it; learned buttons turn the service on on any brand, in Free My TV mode.
   Vestel (F&U and other store brands; MediaTek, Android TV 14 tested) maps its Netflix button to `KEYCODE_STEM_1`, a
   global key (`dumpsys window policy` lists them) that the key filter sees first; its YouTube, Prime Video and Google
   Play buttons stay with the system. The stock lists needed no Vestel entries.
@@ -240,6 +247,16 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
 - Never turn off an app that saved a Wi-Fi network: Android deletes its networks and Original can't bring them
   back (`wifiOwners` in `HomeMode`). When the Wi-Fi service doesn't answer, the switch stops on Wi-Fi, and the boot
   check leaves the setup app and the stock home screen for later.
+- The remote's settings (dashboard) button makes SystemUI send `TOGGLE_NOTIFICATION_HANDLER_PANEL` to Google's home app
+  alone, so with it off the button does nothing (KTC/Lumio remotes send `KEYCODE_FOCUS`, scan code 240, for it; the key
+  filter sees it, then the TV toggles the panel). Google's home can't stay on: its HOME activity
+  has priority 2, which an installed app can't have, and Android picks the highest priority before any default, so the
+  Home button went to it (tested on a KTC-made Lumio, Android 14); the shell can't turn off one activity of another
+  app either. So `RemoteKeys` opens the TV's Settings on that key, where the key service runs (`settings_button=true`
+  turns the service on elsewhere). `keep_google_dashboard=true` is the other way: Google's home stays on (`targets`
+  skips it, `verifyNow` turns it back on), the key filter sees `KEYCODE_HOME` before the system and opens our
+  HomeActivity, and `RemoteKeyService` jumps to ours whenever Google's HomeActivity comes to the front (boot, an app's
+  "go home").
 - Never commit `config.properties`, `*.keystore` or any key.
 - Never uninstall or clear the data of system apps; only `pm disable-user --user 0`, through `HomeMode`, so
   *Original* can bring it back.

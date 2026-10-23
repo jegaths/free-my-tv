@@ -374,7 +374,9 @@ final class HomeMode {
             busy(c, Ui.tr("Measuring Free My TV…"));
             measureHomeTime(c, adb, FREE);
             done(c, null);
-            adb.shell("am start -a android.intent.action.MAIN -c android.intent.category.HOME");
+            // With Google's home kept on, a plain Home request would resolve to it: ours by name then.
+            adb.shell(keepsGoogleHome(packageOf(home)) ? "am start -n " + HOME_ACTIVITY
+                    : "am start -a android.intent.action.MAIN -c android.intent.category.HOME");
             ModeJob.schedule(c, ModeJob.MEMORY, FREE, 120_000);
         } catch (Exception e) {
             done(c, Ui.trf("Couldn't turn on Free My TV: {error}", "error", e.getMessage()));
@@ -572,6 +574,15 @@ final class HomeMode {
                 }
                 for (String pkg : sorted(wanted)) if (!order.contains(pkg)) order.add(pkg);
                 Set<String> disabled = new HashSet<>(stringList(s, "disabled"));
+                // Google's home kept on for its panel: back on if an earlier build (or setting) turned it off.
+                if (keepsGoogleHome(homePkg)) {
+                    order.remove(homePkg);
+                    if (disabledNow.contains(homePkg) && adb.shell("pm enable " + homePkg).contains("new state: enabled")) {
+                        disabledNow.remove(homePkg);
+                        AppLog.w("Google's home app back on, for its panel");
+                    }
+                    if (!disabledNow.contains(homePkg)) disabled.remove(homePkg);
+                }
                 // Off before Free My TV: turned off again if a TV update brings one back, but never handed to
                 // Original to turn on.
                 List<String> keptOff = stringList(s, "keptOff");
@@ -650,13 +661,21 @@ final class HomeMode {
         List<String> out = new ArrayList<>();
         String homePkg = home.contains("FallbackHome") ? null : packageOf(home);
         if (setupHome) out.add(GOOGLE_SETUP);
-        if (homePkg != null && !homePkg.equals(PKG)) out.add(homePkg);
+        // Google TV's home must go off, not just lose the HOME role: its activity has priority 2, which an installed
+        // app can't match, and Android picks the highest priority before any default (the Home button went to it).
+        // With keep_google_dashboard it stays on for its panel, and the key service takes the Home button instead.
+        if (homePkg != null && !homePkg.equals(PKG) && !keepsGoogleHome(homePkg)) out.add(homePkg);
         if (TV_LAUNCHER.equals(homePkg)) out.add(TV_RECOMMENDATIONS);
         String dreamPkg = packageOf(dream);
         if (dreamPkg != null && !dreamPkg.equals(PKG) && !dreamPkg.equals(homePkg)) out.add(dreamPkg);
         out.addAll(Arrays.asList(DEBLOAT));
         if (Config.DISABLE_ASSISTANT) out.addAll(Arrays.asList(ASSISTANT));
         return out;
+    }
+
+    /** keep_google_dashboard, and the TV's home is Google TV's: it stays on (RemoteKeys takes the Home button). */
+    static boolean keepsGoogleHome(String homePkg) {
+        return Config.KEEP_GOOGLE_DASHBOARD && homePkg != null && GOOGLE_HOME.startsWith(homePkg + "/");
     }
 
     /** The home screen in use now ("package/activity"): the HOME role holder, among the TV's home screens. */
