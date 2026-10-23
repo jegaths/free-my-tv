@@ -18,6 +18,7 @@
  "Clear": "ท้องฟ้าแจ่มใส",
  "Cloudy": "มีเมฆมาก",
  "Connecting…": "กำลังเชื่อมต่อ…",
+ "Continue watching": "ดูต่อ",
  "Couldn't check Free My TV: {error}": "ตรวจสอบ Free My TV ไม่ได้: {error}",
  "Couldn't go back to the original: {error}": "กลับไปโหมดของเดิมไม่ได้: {error}",
  "Couldn't open TV Settings": "เปิดตั้งค่าทีวีไม่ได้",
@@ -140,6 +141,7 @@
  "This product uses the TMDB API but is not endorsed or certified by TMDB.": "ผลิตภัณฑ์นี้ใช้ TMDB API แต่ไม่ได้รับการรับรองจาก TMDB",
  "Thunderstorms": "พายุฝนฟ้าคะนอง",
  "Top Buttons": "ปุ่มด้านบน",
+ "Trending": "กำลังฮิต",
  "Turned back on {list}: the TV's inputs or remote need it.": "เปิด {list} กลับคืนแล้ว: ช่องสัญญาณหรือรีโมทของทีวีต้องใช้",
  "Turned off what was missing: {list}.": "ปิดส่วนที่ตกค้าง: {list}",
  "Turning apps back on ({done}/{total})…": "กำลังเปิดแอปกลับคืน ({done}/{total})…",
@@ -199,6 +201,7 @@
  "{n} MB": "{n} MB",
  "{n} h ago": "{n} ชม.ที่แล้ว",
  "{n} min ago": "{n} นาทีที่แล้ว",
+ "{n} min left": "เหลืออีก {n} นาที",
  "{n} ms": "{n} ms",
  "← → to move · OK to drop · Back to cancel": "← → ย้าย · OK วาง · ย้อนกลับ ยกเลิก"
 }

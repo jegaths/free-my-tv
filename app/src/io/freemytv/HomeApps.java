@@ -55,6 +55,8 @@ final class HomeApps {
     private HomeApps() {}
 
     static final int APP = 0, LIVE_TV = 1, INPUT = 2, ALL_APPS = 3, SETTINGS = 4, ANDROID_SETTINGS = 5;
+    /** A Watch Next item: `uri` is the intent the app gave to resume it ("intent:…" or an https address). */
+    static final int RESUME = 6;
     /** The "HDMI Inputs" button: opens the bottom drawer on the inputs (the home screen handles it). */
     static final int INPUTS = 7;
     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
@@ -286,6 +288,17 @@ final class HomeApps {
         return it;
     }
 
+    /** Resumes what an app put in Watch Next. */
+    static Item resume(WatchNext.Item w) {
+        Item it = new Item();
+        it.kind = RESUME;
+        it.key = w.intent;
+        it.pkg = w.pkg;
+        it.label = w.title;
+        it.uri = w.intent;
+        return it;
+    }
+
     /** For the bottom drawer: live TV and every HDMI input (the ones with no device are shown dimmed). */
     static List<Item> allInputs(Context c) {
         List<Item> items = new ArrayList<>();
@@ -435,6 +448,23 @@ final class HomeApps {
                 break;
             case ANDROID_SETTINGS:
                 intent = new Intent(Settings.ACTION_SETTINGS);
+                break;
+            case RESUME:
+                try {
+                    intent = Intent.parseUri(it.uri, Intent.URI_INTENT_SCHEME);
+                } catch (java.net.URISyntaxException e) {
+                    return false;
+                }
+                if (intent.getComponent() == null && intent.getPackage() == null) intent.setPackage(it.pkg);
+                // Nuvio (1.0) ignores its own Watch Next intents (and restarts on them, at the profile picker): its
+                // deep link to the title's page instead, which it keeps until the profile is picked.
+                String contentId = intent.getStringExtra("contentId"), contentType = intent.getStringExtra("contentType");
+                if (Recs.NUVIO.equals(it.pkg) && contentId != null && contentType != null) {
+                    intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("nuvio://" + contentType + "/" + contentId))
+                            .addCategory(Intent.CATEGORY_BROWSABLE).setPackage(it.pkg);
+                }
+                plain = launchIntent(a.getPackageManager(), it.pkg);   // the app's home if it won't take the item
+                if (plain != null) plain.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
                 break;
             default:
                 return false;

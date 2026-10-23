@@ -50,6 +50,8 @@ final class HomeMode {
      * (Android 9) has the same setup app without a home screen: there it is left alone.
      */
     static final String GOOGLE_SETUP = "com.google.android.tungsten.setupwraith";
+    /** Reading other apps' Watch Next items (the Continue watching row): granted through the TV's ADB in Free My TV mode. */
+    static final String TV_LISTINGS = "android.permission.READ_TV_LISTINGS";
 
     /**
      * Turned off in Free My TV mode, when the TV has them. Google extras first, then TV-maker extras (TCL here; add
@@ -359,6 +361,7 @@ final class HomeMode {
                 }
             }
             record(adb, disabled);
+            adb.shell("pm grant " + PKG + " " + TV_LISTINGS);
             s = state(c);
             s.put("mode", FREE).put("since", System.currentTimeMillis()).put("homeReverted", false)
                     .put("disabled", new JSONArray(sorted(disabled))).put("setupHome", setupHome);
@@ -420,6 +423,7 @@ final class HomeMode {
                 }
             }
             record(adb, new HashSet<>(failed));
+            adb.shell("pm revoke " + PKG + " " + TV_LISTINGS);
             restoreScreensaver(adb, s);
             try {
                 remoteService(c, adb, false);
@@ -628,6 +632,9 @@ final class HomeMode {
                 if (!reverted && !homeHolder(adb).contains(PKG)) {
                     adb.shell("cmd package set-home-activity " + HOME_ACTIVITY);
                     fixed.add(Ui.tr("the home screen"));
+                }
+                if (app.checkSelfPermission(TV_LISTINGS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    adb.shell("pm grant " + PKG + " " + TV_LISTINGS);
                 }
                 // Whole component names: ".ScreensaverAlone" (Android 11) contains ".Screensaver" (12 and newer).
                 if (!reverted && !Arrays.asList(adb.shell("settings get secure screensaver_components").trim().split(",")).contains(DREAM)) {

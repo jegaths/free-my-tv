@@ -175,6 +175,11 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
   by a try/catch), `BitmapShader.setFilterMode` (guarded), `Recording.Node` and `Ui.Weighted` (the Android 9 font weight) should come up.
 - The home screen is drawn by hand on one Canvas (`HomeView`); the glass and the sky are AGSL shaders (`Shaders`,
   Android 13+, with a fallback for 8 to 12). Keep it at 60 fps: no allocations in `onDraw`, no work on the UI thread.
+  Under the tabs, two rows of 16:9 cards (288×162) that scroll sideways (`rowScroll` springs; `layoutRows` places
+  them): *Continue watching*, from Android TV's Watch Next list (`WatchNext`, needs `READ_TV_LISTINGS`, which the
+  switch grants through the TV's ADB; a card opens the app's own resume intent, `HomeApps.RESUME`), then the tab's
+  picks (`Recs.all`, up to 36). Card images are thumbs (`Recs.thumb`, an LRU of 48); the background still follows the
+  focused pick (`Recs.backdrop`). The LG and Samsung app (`web/home.js`) still has the older three-card layout.
 - Some TVs draw their UI at 1280×720 on a 1080p panel (TCL's 1 GB models: `ro.surface_flinger.max_graphics_width`
   and `_height`, `ro.config.low_ram`). There every pixel and every MB counts: `Backdrop` builds its images at the UI's
   size (and the picks use TMDB's w1280), and the shelf logos have a copy at the resting size and one at the focused

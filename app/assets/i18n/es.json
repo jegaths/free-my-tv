@@ -18,6 +18,7 @@
  "Clear": "Despejado",
  "Cloudy": "Nublado",
  "Connecting…": "Conectando…",
+ "Continue watching": "Seguir viendo",
  "Couldn't check Free My TV: {error}": "No se pudo comprobar Free My TV: {error}",
  "Couldn't go back to the original: {error}": "No se pudo volver al modo original: {error}",
  "Couldn't open TV Settings": "No se pudieron abrir los Ajustes del TV",
@@ -140,6 +141,7 @@
  "This product uses the TMDB API but is not endorsed or certified by TMDB.": "Este producto usa la API de TMDB, sin respaldo ni certificación de TMDB.",
  "Thunderstorms": "Tormenta",
  "Top Buttons": "Botones de arriba",
+ "Trending": "Tendencias",
  "Turned back on {list}: the TV's inputs or remote need it.": "Reactivé {list}: las entradas o el control del TV lo necesitan.",
  "Turned off what was missing: {list}.": "Desactivé lo que faltaba: {list}.",
  "Turning apps back on ({done}/{total})…": "Reactivando apps ({done}/{total})…",
@@ -199,6 +201,7 @@
  "{n} MB": "{n} MB",
  "{n} h ago": "hace {n} h",
  "{n} min ago": "hace {n} min",
+ "{n} min left": "quedan {n} min",
  "{n} ms": "{n} ms",
  "← → to move · OK to drop · Back to cancel": "← → para mover · OK para soltar · Atrás para cancelar"
 }

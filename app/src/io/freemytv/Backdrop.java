@@ -35,8 +35,29 @@ final class Backdrop {
         return longest > 0 ? Math.min(1f, longest / 1920f) : 1f;
     }
 
-    private static int ui(int px) {
+    static int ui(int px) {
         return Math.round(px * UI_SCALE);
+    }
+
+    /** A small card image: the file decoded no larger than needed, center-cropped to w × h. */
+    static Bitmap thumb(java.io.File f, int w, int h) throws java.io.IOException {
+        android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        android.graphics.BitmapFactory.decodeFile(f.getPath(), bounds);
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw new java.io.IOException("unreadable image");
+        android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+        opts.inSampleSize = 1;
+        while (bounds.outWidth / (opts.inSampleSize * 2) >= w && bounds.outHeight / (opts.inSampleSize * 2) >= h) opts.inSampleSize *= 2;
+        Bitmap src = android.graphics.BitmapFactory.decodeFile(f.getPath(), opts);
+        if (src == null) throw new java.io.IOException("unreadable image");
+        Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(out);
+        Paint photo = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
+        float scale = Math.max((float) w / src.getWidth(), (float) h / src.getHeight());
+        float sw = src.getWidth() * scale, sh = src.getHeight() * scale;
+        c.drawBitmap(src, null, new RectF((w - sw) / 2, (h - sh) / 2, (w + sw) / 2, (h + sh) / 2), photo);
+        src.recycle();
+        return out;
     }
     final Bitmap image;
     final int[] frost;      // heavily blurred (frosted glass, bottom drawer)
@@ -71,8 +92,8 @@ final class Backdrop {
         c.drawBitmap(src, null, new RectF((W - sw) / 2, (H - sh) / 2, (W + sw) / 2, (H + sh) / 2), photo);
         src.recycle();
         if (forLight) {
-            // Light design: everything comes from the photo without scrims.
-            Bitmap wide = card(out, WIDE_W, WIDE_H), tall = card(out, TALL_W, TALL_H);
+            // Light design: everything comes from the photo without scrims (the cards are thumbs, made apart).
+            Bitmap wide = null, tall = null;
             int[] frost = reduce(out, FW, FH, 3, 3);
             int[] light = whiten(frost.clone(), 0.82f);
             int[] glass = reduce(out, GW, GH, 2, 2);

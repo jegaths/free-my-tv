@@ -18,6 +18,7 @@
  "Clear": "Nắng",
  "Cloudy": "Nhiều mây",
  "Connecting…": "Đang kết nối…",
+ "Continue watching": "Xem tiếp",
  "Couldn't check Free My TV: {error}": "Không kiểm tra được Free My TV: {error}",
  "Couldn't go back to the original: {error}": "Không quay lại bản gốc được: {error}",
  "Couldn't open TV Settings": "Không mở được Cài đặt TV",
@@ -140,6 +141,7 @@
  "This product uses the TMDB API but is not endorsed or certified by TMDB.": "Dùng API TMDB, không được TMDB phê duyệt hay chứng nhận.",
  "Thunderstorms": "Dông",
  "Top Buttons": "Nút phía trên",
+ "Trending": "Thịnh hành",
  "Turned back on {list}: the TV's inputs or remote need it.": "Đã bật lại: {list}. Các ngõ vào hoặc điều khiển của TV cần nó.",
  "Turned off what was missing: {list}.": "Đã tắt phần còn sót: {list}.",
  "Turning apps back on ({done}/{total})…": "Đang bật lại ứng dụng ({done}/{total})…",
@@ -199,6 +201,7 @@
  "{n} MB": "{n} MB",
  "{n} h ago": "{n} giờ trước",
  "{n} min ago": "{n} phút trước",
+ "{n} min left": "còn {n} phút",
  "{n} ms": "{n} ms",
  "← → to move · OK to drop · Back to cancel": "← → di chuyển · OK đặt · Quay lại hủy"
 }

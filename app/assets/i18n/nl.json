@@ -18,6 +18,7 @@
  "Clear": "Zonnig",
  "Cloudy": "Bewolkt",
  "Connecting…": "Verbinden…",
+ "Continue watching": "Verder kijken",
  "Couldn't check Free My TV: {error}": "Kon Free My TV niet controleren: {error}",
  "Couldn't go back to the original: {error}": "Kon niet terug naar het origineel: {error}",
  "Couldn't open TV Settings": "Kon de tv-instellingen niet openen",
@@ -140,6 +141,7 @@
  "This product uses the TMDB API but is not endorsed or certified by TMDB.": "Gebruikt de TMDB-API, zonder goedkeuring of certificering door TMDB.",
  "Thunderstorms": "Onweer",
  "Top Buttons": "Knoppen bovenaan",
+ "Trending": "Trending",
  "Turned back on {list}: the TV's inputs or remote need it.": "Weer aangezet: {list}. De ingangen of de afstandsbediening van de tv hebben het nodig.",
  "Turned off what was missing: {list}.": "Uitgezet wat nog ontbrak: {list}.",
  "Turning apps back on ({done}/{total})…": "Apps weer aanzetten ({done}/{total})…",
@@ -199,6 +201,7 @@
  "{n} MB": "{n} MB",
  "{n} h ago": "{n} u geleden",
  "{n} min ago": "{n} min geleden",
+ "{n} min left": "nog {n} min",
  "{n} ms": "{n} ms",
  "← → to move · OK to drop · Back to cancel": "← → verplaatsen · OK neerzetten · Terug annuleren"
 }

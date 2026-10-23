@@ -18,6 +18,7 @@
  "Clear": "Ηλιοφάνεια",
  "Cloudy": "Συννεφιά",
  "Connecting…": "Σύνδεση…",
+ "Continue watching": "Συνέχεια παρακολούθησης",
  "Couldn't check Free My TV: {error}": "Δεν ήταν δυνατός ο έλεγχος του Free My TV: {error}",
  "Couldn't go back to the original: {error}": "Δεν ήταν δυνατή η επιστροφή στο αρχικό: {error}",
  "Couldn't open TV Settings": "Δεν ήταν δυνατό το άνοιγμα των ρυθμίσεων TV",
@@ -140,6 +141,7 @@
  "This product uses the TMDB API but is not endorsed or certified by TMDB.": "Χρήση API TMDB, χωρίς έγκριση ή πιστοποίηση από το TMDB.",
  "Thunderstorms": "Καταιγίδες",
  "Top Buttons": "Επάνω κουμπιά",
+ "Trending": "Δημοφιλή",
  "Turned back on {list}: the TV's inputs or remote need it.": "Ενεργοποιήθηκαν ξανά: {list}. Τα χρειάζονται οι είσοδοι ή το τηλεχειριστήριο της τηλεόρασης.",
  "Turned off what was missing: {list}.": "Απενεργοποιήθηκαν όσα έλειπαν: {list}.",
  "Turning apps back on ({done}/{total})…": "Επανενεργοποίηση εφαρμογών ({done}/{total})…",
@@ -199,6 +201,7 @@
  "{n} MB": "{n} MB",
  "{n} h ago": "πριν από {n} ώ.",
  "{n} min ago": "πριν από {n} λ.",
+ "{n} min left": "{n} λεπτά ακόμη",
  "{n} ms": "{n} ms",
  "← → to move · OK to drop · Back to cancel": "← → μετακίνηση · OK τοποθέτηση · Πίσω ακύρωση"
 }

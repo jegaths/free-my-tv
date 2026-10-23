@@ -18,6 +18,7 @@
  "Clear": "Soligt",
  "Cloudy": "Mulet",
  "Connecting…": "Ansluter…",
+ "Continue watching": "Fortsätt titta",
  "Couldn't check Free My TV: {error}": "Kunde inte kontrollera Free My TV: {error}",
  "Couldn't go back to the original: {error}": "Kunde inte gå tillbaka till originalet: {error}",
  "Couldn't open TV Settings": "Kunde inte öppna tv-inställningarna",
@@ -140,6 +141,7 @@
  "This product uses the TMDB API but is not endorsed or certified by TMDB.": "Använder TMDB:s API, utan godkännande eller certifiering från TMDB.",
  "Thunderstorms": "Åska",
  "Top Buttons": "Toppknappar",
+ "Trending": "Populärt",
  "Turned back on {list}: the TV's inputs or remote need it.": "Slog på igen: {list}. Tv:ns ingångar eller fjärrkontroll behöver det.",
  "Turned off what was missing: {list}.": "Stängde av det som saknades: {list}.",
  "Turning apps back on ({done}/{total})…": "Slår på appar igen ({done}/{total})…",
@@ -199,6 +201,7 @@
  "{n} MB": "{n} MB",
  "{n} h ago": "för {n} h sedan",
  "{n} min ago": "för {n} min sedan",
+ "{n} min left": "{n} min kvar",
  "{n} ms": "{n} ms",
  "← → to move · OK to drop · Back to cancel": "← → flytta · OK släpp · Tillbaka avbryt"
 }

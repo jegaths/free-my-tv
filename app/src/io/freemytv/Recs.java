@@ -59,7 +59,10 @@ final class Recs {
     private static final int ANIMATION = 16;
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 3;
+    private static final int CACHE_VERSION = 4;
+    /** The small card images of the rows (16:9), at the focused card's size so they stay sharp. */
+    static final int THUMB_W = Backdrop.ui(304), THUMB_H = Backdrop.ui(171);
+    private static final int THUMBS_MAX = 48, LIST_MAX = 36, FILES_MAX = 40;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
     private static final String[][] SERVICES = {
@@ -114,6 +117,11 @@ final class Recs {
     private final Context context;
     private final SharedPreferences cache;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final ExecutorService thumbIo = Executors.newSingleThreadExecutor();   // the cards' images, apart from the list work
+    private final Object downloads = new Object();                                  // one download at a time per process
+    private final Map<String, Bitmap> thumbs = new LinkedHashMap<>(32, 0.75f, true);   // key → ready card image (LRU)
+    private final Set<String> thumbPending = new HashSet<>();
+    private final Map<String, Long> thumbFailedAt = new HashMap<>();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<Listener> listeners = new ArrayList<>();
     private final Map<String, Backdrop> images = new LinkedHashMap<>();   // this hour's, built and ready to draw
@@ -124,7 +132,7 @@ final class Recs {
     private volatile boolean fetching;
     private volatile String error = "";
     private volatile boolean light;     // light design: builds only the cards (all three tabs' cards fit in memory)
-    private volatile long failedAt, keyStamp, linkRetryAt;
+    private volatile long failedAt, keyStamp, linkRetryAt, fetchedAt;
     private volatile String listLanguage = "";   // language used for the saved titles, genres and texts
 
     private Recs(Context c) {
@@ -221,6 +229,85 @@ final class Recs {
         return p == null || p.app == null ? "" : SERVICE_NAME.get(p.app);
     }
 
+    /** The service's name for an app package ("Apple TV", "Nuvio"), or null for an app we don't know. */
+    static String serviceNameOf(String pkg) {
+        if (NUVIO.equals(pkg)) return SERVICE_NAME.get(NUVIO_KEY);
+        for (String[] s : SERVICES) if (s[2].equals(pkg)) return SERVICE_NAME.get(s[1]);
+        return null;
+    }
+
+    /** Every pick of a tab, in the list's order (the cards of the rows), never two from the same franchise. */
+    List<Pick> all(String kind) {
+        List<Pick> list = new ArrayList<>();
+        if (!hasKey(context)) return list;
+        Map<String, Boolean> have = new HashMap<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (Pick p : picks) {
+            if ((kind == null || kind.equals(p.kind))
+                    && (!p.detailed || (p.pkg != null && have.computeIfAbsent(p.pkg, this::installed)))
+                    && seen.add(franchise(p.title))) list.add(p);
+        }
+        return list;
+    }
+
+    // MARK: - Thumbs (the rows' card images: picks from their photo on disk, Watch Next items from their poster)
+
+    /** The pick's card image, or null while it's being made (then the listeners are told). */
+    Bitmap thumb(Pick p) {
+        if (p == null || p.backdrop == null) return null;
+        final Pick pick = p;
+        return thumbFor(p.backdrop, () -> {
+            download(pick);
+            return imageFile(pick);
+        });
+    }
+
+    /** A poster's card image (an https address, downloaded once to the cache), or null while it's being made. */
+    Bitmap thumb(String url) {
+        if (url == null || !url.startsWith("http")) return null;
+        File dir = new File(context.getCacheDir(), "posters");
+        File f = new File(dir, Integer.toHexString(url.hashCode()) + "-" + url.length());
+        return thumbFor(url, () -> {
+            if (!f.exists()) {
+                //noinspection ResultOfMethodCallIgnored
+                dir.mkdirs();
+                downloadTo(url, f, 20000);
+                prune(dir, FILES_MAX);
+            }
+            return f;
+        });
+    }
+
+    private Bitmap thumbFor(String key, java.util.concurrent.Callable<File> source) {
+        synchronized (thumbs) {
+            Bitmap b = thumbs.get(key);
+            if (b != null) return b;
+            Long failed = thumbFailedAt.get(key);
+            if (failed != null && System.currentTimeMillis() - failed < 10 * 60_000L) return null;
+            if (!thumbPending.add(key)) return null;
+        }
+        thumbIo.execute(() -> {
+            try {
+                Bitmap b = Backdrop.thumb(source.call(), THUMB_W, THUMB_H);
+                synchronized (thumbs) {
+                    thumbs.put(key, b);
+                    java.util.Iterator<String> oldest = thumbs.keySet().iterator();
+                    while (thumbs.size() > THUMBS_MAX && oldest.hasNext()) {
+                        oldest.next();
+                        oldest.remove();
+                    }
+                }
+                notifyListeners();
+            } catch (Exception | OutOfMemoryError e) {
+                synchronized (thumbs) { thumbFailedAt.put(key, System.currentTimeMillis()); }
+                AppLog.w("card image: " + e.getMessage());
+            } finally {
+                synchronized (thumbs) { thumbPending.remove(key); }
+            }
+        });
+        return null;
+    }
+
     /** The pick's ready backdrop (or null: builds it in the background and notifies when it's ready). */
     Backdrop backdrop(Pick p) {
         if (p == null || p.backdrop == null) return null;
@@ -261,9 +348,11 @@ final class Recs {
                 || !listLanguage.equals(Ui.language);
         boolean missing = false;
         for (Pick pick : wanted()) missing |= !pick.detailed || !hasImage(pick) || needsLink(pick);
+        if (missing && !stale && now - fetchedAt < 60_000L) return;   // not again right away: one title may never load
         if (!stale && !missing) return;
         keyStamp = stamp;
         fetching = true;
+        fetchedAt = now;
         io.execute(() -> {
             try {
                 if (stale) fetchList(p);
@@ -367,14 +456,9 @@ final class Recs {
         });
     }
 
-    /** This hour's picks for the three tabs (Explore, Movies, Shows), without repeats. */
+    /** The picks the rows can show (all of them, up to LIST_MAX): their details and photos are fetched. */
     List<Pick> wanted() {
-        List<Pick> out = new ArrayList<>();
-        java.util.Set<String> seen = new java.util.HashSet<>();
-        for (String kind : new String[] {null, "movie", "tv"}) {
-            for (Pick p : now(kind)) if (seen.add(key(p))) out.add(p);
-        }
-        return out;
+        return all(null);
     }
 
     /** Movies and shows are numbered separately on TMDB: a pick is identified by type + number. */
@@ -437,8 +521,8 @@ final class Recs {
         // Trending first, then the new releases; movies and shows alternating, without repeats, up to 24.
         List<Pick> list = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
-        alternate(list, seen, hotMovies, hotShows, 24);
-        alternate(list, seen, newMovies, newShows, 24);
+        alternate(list, seen, hotMovies, hotShows, LIST_MAX);
+        alternate(list, seen, newMovies, newShows, LIST_MAX);
         if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
         picks = list;
         period = p;
@@ -741,23 +825,31 @@ final class Recs {
         if (f.exists()) return;
         //noinspection ResultOfMethodCallIgnored
         f.getParentFile().mkdirs();
-        File part = new File(f.getPath() + ".part");
-        HttpURLConnection c = (HttpURLConnection) new URL(IMAGES + p.backdrop).openConnection();
-        c.setConnectTimeout(8000);
-        c.setReadTimeout(20000);
-        try (InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(part)) {
-            byte[] buffer = new byte[16384];
-            int n;
-            while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
-        } catch (IOException e) {
-            //noinspection ResultOfMethodCallIgnored
-            part.delete();
-            throw e;
-        } finally {
-            c.disconnect();
+        downloadTo(IMAGES + p.backdrop, f, 20000);
+        prune(f.getParentFile(), FILES_MAX);
+    }
+
+    /** Downloads to a .part file first, then renames it; one download at a time (two threads may want the same file). */
+    private void downloadTo(String url, File f, int readTimeout) throws IOException {
+        synchronized (downloads) {
+            if (f.exists()) return;
+            File part = new File(f.getPath() + ".part");
+            HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(readTimeout);
+            try (InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(part)) {
+                byte[] buffer = new byte[16384];
+                int n;
+                while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+            } catch (IOException e) {
+                //noinspection ResultOfMethodCallIgnored
+                part.delete();
+                throw e;
+            } finally {
+                c.disconnect();
+            }
+            if (!part.renameTo(f)) throw new IOException("couldn't save the image");
         }
-        if (!part.renameTo(f)) throw new IOException("couldn't save the image");
-        prune(f.getParentFile());
     }
 
     /** Reads the photo (≥ the UI's width) and builds the backdrop (Backdrop: cards plus frosted and glass versions). */
@@ -793,15 +885,15 @@ final class Recs {
     }
 
     void trim() {
-        // Explore's picks stay: the home screen opens on that tab, so its cards are never gray when you come back.
-        java.util.Set<String> keep = new java.util.HashSet<>();
-        for (Pick p : now(null)) if (p.backdrop != null) keep.add(p.backdrop);
         synchronized (images) {
-            images.keySet().retainAll(keep);
+            images.clear();
+        }
+        synchronized (thumbs) {
+            thumbs.clear();
         }
     }
 
-    private static void prune(File dir) {
+    private static void prune(File dir, int keep) {
         // A download cut off when the system stopped the app leaves its .part behind.
         long stale = System.currentTimeMillis() - 10 * 60_000L;
         File[] parts = dir.listFiles((d, name) -> name.endsWith(".part"));
@@ -810,9 +902,9 @@ final class Recs {
             if (parts[i].lastModified() < stale) parts[i].delete();
         }
         File[] files = dir.listFiles((d, name) -> !name.endsWith(".part"));
-        if (files == null || files.length <= 24) return;
+        if (files == null || files.length <= keep) return;
         Arrays.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
-        for (int i = 0; i < files.length - 24; i++) {
+        for (int i = 0; i < files.length - keep; i++) {
             //noinspection ResultOfMethodCallIgnored
             files[i].delete();
         }

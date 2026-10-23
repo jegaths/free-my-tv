@@ -18,6 +18,7 @@
  "Clear": "맑음",
  "Cloudy": "흐림",
  "Connecting…": "연결 중…",
+ "Continue watching": "이어서 보기",
  "Couldn't check Free My TV: {error}": "Free My TV를 확인하지 못했습니다: {error}",
  "Couldn't go back to the original: {error}": "원래대로 돌아가지 못했습니다: {error}",
  "Couldn't open TV Settings": "TV 설정을 열 수 없습니다.",
@@ -140,6 +141,7 @@
  "This product uses the TMDB API but is not endorsed or certified by TMDB.": "이 제품은 TMDB API를 사용하지만 TMDB의 보증이나 인증을 받지 않았습니다.",
  "Thunderstorms": "뇌우",
  "Top Buttons": "상단 버튼",
+ "Trending": "인기",
  "Turned back on {list}: the TV's inputs or remote need it.": "다시 켰습니다: {list}. TV 입력이나 리모컨에 필요합니다.",
  "Turned off what was missing: {list}.": "남아 있던 항목을 껐습니다: {list}.",
  "Turning apps back on ({done}/{total})…": "앱 다시 켜는 중({done}/{total})…",
@@ -199,6 +201,7 @@
  "{n} MB": "{n}MB",
  "{n} h ago": "{n}시간 전",
  "{n} min ago": "{n}분 전",
+ "{n} min left": "{n}분 남음",
  "{n} ms": "{n}ms",
  "← → to move · OK to drop · Back to cancel": "← → 이동 · OK 배치 · 뒤로 취소"
 }

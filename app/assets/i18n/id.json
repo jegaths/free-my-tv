@@ -18,6 +18,7 @@
  "Clear": "Cerah",
  "Cloudy": "Berawan",
  "Connecting…": "Menghubungkan…",
+ "Continue watching": "Lanjutkan menonton",
  "Couldn't check Free My TV: {error}": "Tidak bisa memeriksa Free My TV: {error}",
  "Couldn't go back to the original: {error}": "Tidak bisa kembali ke asli: {error}",
  "Couldn't open TV Settings": "Tidak bisa membuka Setelan TV",
@@ -140,6 +141,7 @@
  "This product uses the TMDB API but is not endorsed or certified by TMDB.": "Memakai API TMDB, tanpa dukungan atau sertifikasi TMDB.",
  "Thunderstorms": "Badai Petir",
  "Top Buttons": "Tombol Atas",
+ "Trending": "Sedang tren",
  "Turned back on {list}: the TV's inputs or remote need it.": "Dinyalakan lagi: {list}. Input atau remote TV membutuhkannya.",
  "Turned off what was missing: {list}.": "Mematikan yang tersisa: {list}.",
  "Turning apps back on ({done}/{total})…": "Menyalakan lagi aplikasi ({done}/{total})…",
@@ -199,6 +201,7 @@
  "{n} MB": "{n} MB",
  "{n} h ago": "{n} jam lalu",
  "{n} min ago": "{n} mnt lalu",
+ "{n} min left": "{n} mnt lagi",
  "{n} ms": "{n} ms",
  "← → to move · OK to drop · Back to cancel": "← → pindahkan · OK letakkan · Kembali batalkan"
 }
