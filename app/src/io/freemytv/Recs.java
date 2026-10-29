@@ -48,6 +48,7 @@ final class Recs {
         String title, backdrop, meta = "", app, pkg;
         String link;            // opens the title in its app (looked up with Watchmode), or null: the app's home
         boolean detailed;
+        boolean found;          // a search result: its card image is TMDB's smaller copy, not kept with the picks'
     }
 
     interface Listener { void onRecs(); }
@@ -55,6 +56,8 @@ final class Recs {
     private static final String API = "https://api.themoviedb.org/3";
     /** The backdrops: on a 720p UI, TMDB's 1280-wide copy shows the same and is lighter to download and decode. */
     private static final String IMAGES = "https://image.tmdb.org/t/p/" + (Backdrop.W <= 1280 ? "w1280" : "original");
+    /** Search results' cards: TMDB's 780-wide copy, plenty for a 304-wide card. */
+    private static final String SMALL_IMAGES = "https://image.tmdb.org/t/p/w780";
     /** TMDB's Animation genre (movies and shows: cartoons and anime), left out with hide_animation=true. */
     private static final int ANIMATION = 16;
     private static final long LIST_EVERY = 6 * 3600_000L;
@@ -118,6 +121,7 @@ final class Recs {
     private final SharedPreferences cache;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final ExecutorService thumbIo = Executors.newSingleThreadExecutor();   // the cards' images, apart from the list work
+    private final ExecutorService searchIo = Executors.newSingleThreadExecutor();  // search and its results' details
     private final Object downloads = new Object();                                  // one download at a time per process
     private final Map<String, Bitmap> thumbs = new LinkedHashMap<>(32, 0.75f, true);   // key → ready card image (LRU)
     private final Set<String> thumbPending = new HashSet<>();
@@ -255,6 +259,7 @@ final class Recs {
     /** The pick's card image, or null while it's being made (then the listeners are told). */
     Bitmap thumb(Pick p) {
         if (p == null || p.backdrop == null) return null;
+        if (p.found) return thumb(SMALL_IMAGES + p.backdrop);
         final Pick pick = p;
         return thumbFor(p.backdrop, () -> {
             download(pick);
@@ -468,6 +473,66 @@ final class Recs {
 
     private void notifyListeners() {
         main.post(() -> { for (Listener l : new ArrayList<>(listeners)) l.onRecs(); });
+    }
+
+    // MARK: - Search
+
+    interface Found { void on(List<Pick> results, String error); }
+
+    /**
+     * Movies and shows whose title matches the words, in TMDB's order (the best known first), on searchIo; the answer
+     * comes on the main thread, with an error when TMDB couldn't be reached. Titles without a photo are left out.
+     */
+    void search(String words, Found then) {
+        searchIo.execute(() -> {
+            List<Pick> out = new ArrayList<>();
+            String error = null;
+            try {
+                JSONArray results = get("/search/multi?include_adult=false&language=" + lang()
+                        + "&query=" + URLEncoder.encode(words, "UTF-8")).optJSONArray("results");
+                for (int i = 0; results != null && i < results.length() && out.size() < LIST_MAX; i++) {
+                    JSONObject o = results.getJSONObject(i);
+                    String kind = o.optString("media_type");
+                    String backdrop = o.optString("backdrop_path", "");
+                    if (!kind.equals("movie") && !kind.equals("tv") || backdrop.isEmpty() || "null".equals(backdrop)) continue;
+                    Pick p = new Pick();
+                    p.id = o.optInt("id");
+                    p.kind = kind;
+                    p.title = o.optString(kind.equals("movie") ? "title" : "name");
+                    p.backdrop = backdrop;
+                    p.found = true;
+                    String date = o.optString(kind.equals("movie") ? "release_date" : "first_air_date", "");
+                    List<String> parts = new ArrayList<>();
+                    parts.add(kind.equals("tv") ? Ui.tr("Series") : Ui.tr("Movie"));
+                    if (date.length() >= 4) parts.add(date.substring(0, 4));
+                    p.meta = String.join(" · ", parts);
+                    out.add(p);
+                }
+            } catch (Exception e) {
+                error = e.getMessage();
+                AppLog.w("search: " + error);
+            }
+            List<Pick> results = out;
+            String message = error;
+            main.post(() -> then.on(results, message));
+        });
+    }
+
+    /**
+     * A search result's genre, length and the app that has it (fetchDetails), then, if it's about to open, its link
+     * (findLink: Watchmode's requests are counted, so only for the one opened). `then` runs on the main thread.
+     */
+    void detail(Pick p, boolean opening, Runnable then) {
+        searchIo.execute(() -> {
+            try {
+                if (!p.detailed) fetchDetails(p);
+            } catch (Exception e) {
+                AppLog.w("search details: " + e.getMessage());
+            }
+            if (opening) findLink(p);
+            notifyListeners();
+            if (then != null) main.post(then);
+        });
     }
 
     // MARK: - TMDB

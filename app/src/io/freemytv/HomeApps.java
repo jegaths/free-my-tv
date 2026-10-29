@@ -59,6 +59,8 @@ final class HomeApps {
     static final int RESUME = 6;
     /** The "HDMI Inputs" button: opens the bottom drawer on the inputs (the home screen handles it). */
     static final int INPUTS = 7;
+    /** The search button: the home screen's own search (HomeView), not an app. */
+    static final int SEARCH = 8;
     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
     static final int TILE_W = 384, TILE_H = 216;
 
@@ -198,11 +200,11 @@ final class HomeApps {
 
     // MARK: - Top buttons (the round ones at the top right)
 
-    static final String TOP_LIVE = "live", TOP_INPUTS = "inputs", TOP_SETTINGS = "settings";
-    static final List<String> TOP_DEFAULT = Collections.unmodifiableList(java.util.Arrays.asList(TOP_LIVE, TOP_INPUTS, TOP_SETTINGS));
+    static final String TOP_SEARCH = "search", TOP_LIVE = "live", TOP_INPUTS = "inputs", TOP_SETTINGS = "settings";
+    static final List<String> TOP_DEFAULT = Collections.unmodifiableList(java.util.Arrays.asList(TOP_SEARCH, TOP_LIVE, TOP_INPUTS, TOP_SETTINGS));
     static final int MAX_TOP = TOP_DEFAULT.size();
 
-    /** The keys of the top buttons, in order (Settings > Top Buttons; by default Live TV, HDMI Inputs, Settings). */
+    /** The keys of the top buttons, in order (Settings > Top Buttons; by default Search, Live TV, HDMI Inputs, Settings). */
     static List<String> topButtonKeys() {
         List<String> saved = Prefs.topButtons();
         if (saved == null) return TOP_DEFAULT;
@@ -211,15 +213,19 @@ final class HomeApps {
         return keys;
     }
 
-    /** The top buttons, ready to draw (0 to 3 of them). */
+    /** The top buttons, ready to draw (0 to 4 of them). Search needs the TMDB key. */
     static List<Item> topButtons() {
         List<Item> items = new ArrayList<>();
-        for (String key : topButtonKeys()) items.add(topButton(key));
+        for (String key : topButtonKeys()) {
+            if (key.equals(TOP_SEARCH) && Config.TMDB_KEY.trim().isEmpty()) continue;
+            items.add(topButton(key));
+        }
         return items;
     }
 
     private static Item topButton(String key) {
         switch (key) {
+            case TOP_SEARCH: return action(SEARCH, TOP_SEARCH, Ui.tr("Search"), "search");
             case TOP_LIVE: return action(LIVE_TV, TOP_LIVE, Ui.tr("light|Live TV"), "live_tv");
             case TOP_INPUTS: return action(INPUTS, TOP_INPUTS, Ui.tr("HDMI Inputs"), "hdmi");
             default: return action(SETTINGS, TOP_SETTINGS, Ui.tr("light|Settings"), "settings");
