@@ -262,6 +262,10 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
   skips it, `verifyNow` turns it back on), the key filter sees `KEYCODE_HOME` before the system and opens our
   HomeActivity, and `RemoteKeyService` jumps to ours whenever Google's HomeActivity comes to the front (boot, an app's
   "go home").
+- The remote's input (source) button (`TV_INPUT`) reaches Google's home app, which opens the input player's picker
+  (`com.google.android.tv.inputplayer/.switcher.SelectInputActivity`); with another home on screen Android blocks that
+  ("Background activity launch blocked"), so `RemoteKeys` opens it itself (`com.android.tv.action.VIEW_INPUTS`): on the
+  home screen on any brand, and from inside apps where the key service runs (tested on a KTC-made Lumio, Android 14).
 - Never commit `config.properties`, `*.keystore` or any key.
 - Never uninstall or clear the data of system apps; only `pm disable-user --user 0`, through `HomeMode`, so
   *Original* can bring it back.

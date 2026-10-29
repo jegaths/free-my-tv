@@ -24,12 +24,18 @@ import android.view.KeyEvent;
  * panel, which lives in Google's home app and goes off with it: here it opens the TV's Settings instead
  * (settings_button=true turns the service on for it on other brands). With keep_google_dashboard, Google's home app
  * stays on for that panel, and the Home button is ours instead: Google's home would win it otherwise.
+ * The input (source) button (TV_INPUT): Google TV's home app answers it by opening the input player's picker, which
+ * Android blocks while another home is on screen ("background activity launch"). Where that picker exists, we open it
+ * ourselves: on the home screen on any brand, and everywhere where the key service runs.
  */
 final class RemoteKeys {
     private RemoteKeys() {}
 
     /** Some TCL remotes (BT_RC833) send TCL's own YouTube key instead of BUTTON_3: the same button. */
     private static final int KEY_YOUTUBE_TCL = 4065;
+    /** Google TV's input picker (the input player's SelectInputActivity), which the input button opens. */
+    private static final String VIEW_INPUTS = "com.android.tv.action.VIEW_INPUTS", INPUT_PLAYER = "com.google.android.tv.inputplayer";
+    private static Boolean googleInputs;
     /** KTC remotes (Lumio) send FOCUS (scan code 240) for the settings button; the TV turns it into the panel toggle. */
     private static final int KEY_KTC_DASHBOARD = KeyEvent.KEYCODE_FOCUS;
 
@@ -61,6 +67,17 @@ final class RemoteKeys {
 
     /** Opens the app for this key on its first press. True if the key is ours and in use (it is then consumed). */
     static boolean onKey(Context c, KeyEvent e) {
+        if (e.getKeyCode() == KeyEvent.KEYCODE_TV_INPUT && hasGoogleInputs(c)) {
+            if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
+                AppLog.w("input button -> input picker");
+                try {
+                    c.startActivity(new Intent(VIEW_INPUTS).setPackage(INPUT_PLAYER).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                } catch (RuntimeException ex) {
+                    AppLog.w("input picker: " + ex.getMessage());
+                }
+            }
+            return true;
+        }
         if (!supported()) return false;
         // Settings > Remote Buttons > Add a button: the next button pressed is recorded, not acted on.
         if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0 && Prefs.learnKey(e.getKeyCode(), e.getScanCode())) {
@@ -108,6 +125,13 @@ final class RemoteKeys {
             if (intent != null) c.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         }
         return true;
+    }
+
+    private static boolean hasGoogleInputs(Context c) {
+        if (googleInputs == null) {
+            googleInputs = c.getPackageManager().resolveActivity(new Intent(VIEW_INPUTS).setPackage(INPUT_PLAYER), 0) != null;
+        }
+        return googleInputs;
     }
 
     /** The app's TV launcher, or its plain one (kept here, not in HomeApps, so the key process stays small). */
