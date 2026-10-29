@@ -18,6 +18,7 @@ final class WatchNext {
 
     static final class Item {
         String pkg, title, poster, intent;
+        String description;     // the app's short summary (the billboard), or null
         long engagedAt, position, duration;
         String meta = "";   // "Apple TV · 21 min left", made by the home screen
     }
@@ -40,7 +41,8 @@ final class WatchNext {
                 TvContract.WatchNextPrograms.COLUMN_POSTER_ART_URI, TvContract.WatchNextPrograms.COLUMN_INTENT_URI,
                 TvContract.WatchNextPrograms.COLUMN_LAST_ENGAGEMENT_TIME_UTC_MILLIS,
                 TvContract.WatchNextPrograms.COLUMN_LAST_PLAYBACK_POSITION_MILLIS, TvContract.WatchNextPrograms.COLUMN_DURATION_MILLIS,
-                TvContract.WatchNextPrograms.COLUMN_BROWSABLE, TvContract.WatchNextPrograms.COLUMN_WATCH_NEXT_TYPE};
+                TvContract.WatchNextPrograms.COLUMN_BROWSABLE, TvContract.WatchNextPrograms.COLUMN_WATCH_NEXT_TYPE,
+                TvContract.WatchNextPrograms.COLUMN_SHORT_DESCRIPTION};
         try (Cursor cur = cr.query(TvContract.WatchNextPrograms.CONTENT_URI, columns, null, null,
                 TvContract.WatchNextPrograms.COLUMN_LAST_ENGAGEMENT_TIME_UTC_MILLIS + " DESC")) {
             while (cur != null && cur.moveToNext()) {
@@ -53,6 +55,7 @@ final class WatchNext {
                 it.engagedAt = cur.getLong(4);
                 it.position = cur.getLong(5);
                 it.duration = cur.getLong(6);
+                it.description = cur.getString(9);
                 if (it.title == null || it.intent == null) continue;
                 out.add(it);
             }

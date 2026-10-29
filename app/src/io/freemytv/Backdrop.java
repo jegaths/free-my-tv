@@ -4,6 +4,8 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
 import android.graphics.RectF;
 import android.graphics.Shader;
 
@@ -17,7 +19,8 @@ import android.graphics.Shader;
  *    bottom drawer;
  *  - the Liquid Glass version (480×270, lightly blurred): the photo shows through the shelf and the cards;
  *  - with forLight: the cards (the photo without scrims, cropped wide and tall, already at the focused card size) and
- *    the frosted and glass versions blended with white (by day) and with near-black (at night).
+ *    the frosted and glass versions blended with white (by day) and with near-black (at night); and the billboard:
+ *    the sharp photo at 70% of the screen, for its top right corner, fading out to the left and to the bottom.
  * Only what is needed gets built (with forLight, no full photo: the cards are lightweight, so all 9 for the three tabs
  * fit in memory, ready); the other fields stay null.
  * The final image lives only in GPU memory (HARDWARE): drawing it costs one texture, and the process doesn't hold 8 MB.
@@ -28,6 +31,10 @@ final class Backdrop {
     static final int W = ui(1920), H = ui(1080), FW = 192, FH = 108, GW = 480, GH = 270;
     /** The cards at their focused size (1.05×): the wide one and the two tall ones. */
     static final int WIDE_W = ui(1092), WIDE_H = ui(464), TALL_W = ui(336), TALL_H = ui(464);
+    /** The billboard photo (16:9, 70% of the screen, at the top right). */
+    static final int HERO_W = ui(1344), HERO_H = ui(756);
+    /** The billboard card (Netflix's): the photo cropped wide, at the card's size, with its text scrims. */
+    static final int BANNER_W = ui(1760), BANNER_H = ui(560);
 
     private static float uiScale() {
         android.util.DisplayMetrics m = android.content.res.Resources.getSystem().getDisplayMetrics();
@@ -67,10 +74,14 @@ final class Backdrop {
     final Bitmap lightImage;            // by day: the background (the lightened frosted version, scaled up on screen)
     final int[] nightFrost, nightGlass; // at night: frosted (the bottom drawer's frosted glass) and glass, darkened
     final Bitmap nightImage;            // at night: the background (the darkened frosted version)
+    final Bitmap hero;                  // the billboard photo, already faded at its left and bottom edges
+    final Bitmap banner;                // the billboard card's photo, darkened at its left and bottom for the text
 
     private Backdrop(Bitmap image, int[] frost, int[] glass, Bitmap wide, Bitmap tall, int[] light, int[] lightGlass,
-                     int[] night, int[] nightGlass) {
+                     int[] night, int[] nightGlass, Bitmap hero, Bitmap banner) {
         this.image = image;
+        this.hero = hero;
+        this.banner = banner;
         this.frost = frost;
         this.glass = glass;
         this.wide = wide;
@@ -100,8 +111,9 @@ final class Backdrop {
             int[] lightGlass = whiten(glass.clone(), 0.74f);
             int[] night = darken(frost.clone(), 0.76f);
             int[] nightGlass = darken(glass, 0.56f);
+            Bitmap hero = hero(out), banner = banner(out);
             out.recycle();
-            return new Backdrop(null, frost, null, wide, tall, light, lightGlass, night, nightGlass);
+            return new Backdrop(null, frost, null, wide, tall, light, lightGlass, night, nightGlass, hero, banner);
         }
 
         float boost = Math.max(0, Math.min(0.3f, (luminance(out, 0, 0.22f, 0.5f, 0.62f) - 0.22f) * 1.1f));
@@ -128,7 +140,47 @@ final class Backdrop {
 
         int[] frost = reduce(out, FW, FH, 3, 3);
         int[] glass = reduce(out, GW, GH, 2, 2);
-        return new Backdrop(gpu(out), frost, glass, null, null, null, null, null, null);
+        return new Backdrop(gpu(out), frost, glass, null, null, null, null, null, null, null, null);
+    }
+
+    /**
+     * The billboard card's photo: a wide band of the picture (a little above the middle, where faces usually are), with
+     * a dark scrim on the left and at the bottom, where the logo, the details and the Play button sit.
+     */
+    private static Bitmap banner(Bitmap full) {
+        Bitmap b = Bitmap.createBitmap(BANNER_W, BANNER_H, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        float band = full.getWidth() * (float) BANNER_H / BANNER_W, top = (full.getHeight() - band) * 0.35f;
+        c.drawBitmap(full, new android.graphics.Rect(0, Math.round(top), full.getWidth(), Math.round(top + band)),
+                new RectF(0, 0, BANNER_W, BANNER_H), new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG));
+        Paint scrim = new Paint(Paint.DITHER_FLAG);
+        scrim.setShader(new LinearGradient(0, 0, BANNER_W * 0.62f, 0,
+                new int[] {black(0.78f), black(0.62f), black(0.32f), black(0.08f), 0},
+                new float[] {0, 0.25f, 0.55f, 0.8f, 1}, Shader.TileMode.CLAMP));
+        c.drawRect(0, 0, BANNER_W, BANNER_H, scrim);
+        scrim.setShader(new LinearGradient(0, BANNER_H, 0, BANNER_H * 0.4f,
+                new int[] {black(0.62f), black(0.4f), black(0.14f), 0}, new float[] {0, 0.3f, 0.65f, 1}, Shader.TileMode.CLAMP));
+        c.drawRect(0, 0, BANNER_W, BANNER_H, scrim);
+        return gpu(b);
+    }
+
+    /**
+     * The billboard photo: scaled down to HERO_W × HERO_H, its alpha eased to nothing over the left 60% and the bottom
+     * half, so it melts into the blurred background under it (eased stops: a straight fade shows a visible edge).
+     */
+    private static Bitmap hero(Bitmap full) {
+        Bitmap b = Bitmap.createBitmap(HERO_W, HERO_H, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        c.drawBitmap(full, null, new RectF(0, 0, HERO_W, HERO_H), new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG));
+        int[] fade = {0x00000000, 0x14000000, 0x4D000000, 0x99000000, 0xDE000000, 0xFF000000};
+        float[] at = {0, 0.2f, 0.4f, 0.6f, 0.8f, 1};
+        Paint mask = new Paint(Paint.DITHER_FLAG);
+        mask.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
+        mask.setShader(new LinearGradient(0, 0, HERO_W * 0.6f, 0, fade, at, Shader.TileMode.CLAMP));
+        c.drawRect(0, 0, HERO_W, HERO_H, mask);
+        mask.setShader(new LinearGradient(0, HERO_H, 0, HERO_H * 0.5f, fade, at, Shader.TileMode.CLAMP));
+        c.drawRect(0, 0, HERO_W, HERO_H, mask);
+        return gpu(b);
     }
 
     /** How many times smaller the screensaver photo's frosted version is (the glass math uses the same number). */

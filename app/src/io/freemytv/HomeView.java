@@ -54,11 +54,11 @@ import java.util.function.Consumer;
 
 /**
  * The home screen, styled after the Apple TV app with the macOS 27 glass:
- *  - at the top left, the "For You" title and the tabs (Explore, Movies, Shows); at the top right, icon-only glass
- *    buttons (Live TV, HDMI Inputs, Settings), with the focused one's name below it, and the small crypto quotes
- *    (logo + price) at the right end of the tab row;
- *  - three cards with the titles recommended for right now in the selected tab (Recs, from TMDB); the background is
- *    the first card's photo, heavily blurred and almost white (Backdrop); without one, a light gradient;
+ *  - at the top left, the tabs (Explore, Movies, Shows); at the top right, icon-only glass buttons (Search, Live TV,
+ *    HDMI Inputs, Settings), with the focused one's name below it, and the small crypto quotes (logo + price);
+ *  - the billboard (as Netflix's): the featured title's photo at the top right, and its logo, details and summary;
+ *    under it one row of cards at a time (Continue watching, then the tab's picks from TMDB, Recs); the background is
+ *    the featured photo, heavily blurred and almost white (Backdrop); without one, a light gradient;
  *  - at the bottom, the glass shelf with the apps (icons in each brand's color, like the tvOS Dock; the focused one
  *    grows);
  *  - ↓ on the shelf: everything moves up and the bottom drawer appears (inputs, shortcuts, weather for the next hours
@@ -78,8 +78,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // Shelf like the tvOS 27 Dock: icons in each brand's color, 48 apart, and the glass bar hugging them with 40 of
     // padding (the focused icon grows 20% without touching its edge). The icons are 16:9, the shape of the apps' TV
     // banners, so those are never stretched: up to 224 × 126, 178 × 100 with eight apps.
-    private static final float SHELF_PAD = 40, TILE_GAP = 48;
-    private static final float TILE_RADIUS = 22;
+    // Kept small (the remote's own buttons open the apps): hidden until the focus goes down to it.
+    private static final float SHELF_PAD = 16, TILE_GAP = 22;
+    private static final float TILE_RADIUS = 12;
     // Tile focus (Apple TV style): it grows from the center and its shadow drops (it "rises" toward the viewer).
     private static final float FOCUS_GROW = 0.2f;
     // Corner capsule.
@@ -102,6 +103,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // The tab bar is a 68 px capsule; the cards sit on the 5-column grid (the wide one spans 3).
     private static final float L_TITLE_BASE = 112, L_TABBAR_TOP = 140, L_TABBAR_H = 68;
     private static final float L_BUTTON = 68, L_BUTTON_GAP = 20, L_BUTTON_CY = 103;
+    // The tabs sit at the top, level with the round buttons.
+    private static final float L_TABS_TOP = 69;
+    // The billboard (as Netflix's): the featured title's photo at the top right (Backdrop.hero) and, on the left, its
+    // logo (or name) standing on B_LOGO_BOTTOM, its details and two lines of summary. Under it, one row at a time.
+    private static final float B_LOGO_W = 620, B_LOGO_H = 190, B_LOGO_BOTTOM = 330, B_META_BASE = 386, B_TEXT_TOP = 412,
+            B_TEXT_W = 760, B_NAME_W = 1000;
+    // At rest (the focus on the tabs, the Play button or the shelf) the billboard is a rounded card under the tabs, the
+    // photo inside (Backdrop.banner), its text at the bottom left (A_), and the first row peeks out below. With the focus
+    // in the rows, the card fades away: the text moves to the top left (B_) over the photo (Backdrop.hero).
+    private static final float CARD_TOP = 160, CARD_BOTTOM = 720, CARD_RADIUS = 28, CARD_PAD = 64;
+    private static final float A_LOGO_W = 560, A_LOGO_H = 150, A_LOGO_BOTTOM = 470, A_META_BASE = 508, A_TEXT_TOP = 534,
+            A_PLAY_TOP = 624, PLAY_H = 62, A_ROW_TOP = 794;
+    /** The carousel moves on by itself this often (while the card is on screen). */
+    private static final long CAROUSEL_MS = 8000;
+    private static final long BILL_FADE_MS = 260;
     // Search: the field takes the tabs' place (as tall as the tab bar), the magnifier and the words inset in it.
     private static final float SEARCH_W = 820, SEARCH_ICON_X = 42, SEARCH_TEXT_X = 80;
     // Rows of 16:9 cards that scroll sideways: Continue watching (Watch Next), then the tab's picks. A row's header
@@ -109,7 +125,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final float R_CARD_W = 288, R_CARD_H = 162, R_GAP = 32, R_HEAD = 24, R_TITLE = 34, R_META = 28;
     private static final float R1_TOP = 268, R2_TOP = 550;
     private static final int MAX_CARDS = 40, MAX_RESUME = 24;
-    private static final float L_PLATTER_TOP = 814, L_TILE_H = 126;
+    private static final float L_PLATTER_TOP = 948, L_TILE_H = 60, DOCK_HIDE = 170;
     private static final float L_DATE_BASE = 330, L_CLOCK_BASE = 540, L_WEATHER_BASE = 626, L_QUOTES_BASE = 694;
     private static final int L_INK = 0xFF1D1D1F, L_DIM = 0xFF6E6E73, L_FAINT = 0xFF8E8E93;
     private static String[] tabs;
@@ -174,6 +190,36 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private int searchSerial;
     private final Runnable runSearch = this::runSearch;
     private Paint lField;
+    // The billboard: the featured title (a pick or a Continue watching item), when it changed (its text fades in), and
+    // its text, made again only when the title or its details change.
+    private Recs.Pick featPick;
+    private WatchNext.Item featItem;
+    private long featAt;
+    private int lastRow;            // the row under the billboard: 0 Continue watching, 1 the picks
+    private final Spring rowsY = new Spring(0.36f, 0.9f, 0);   // px the rows have slid up (the second row's turn)
+    private final Spring page = new Spring(0.42f, 1f, 0);       // 0: the billboard card; 1: the focus in the rows
+    private final Spring dock = new Spring(0.36f, 1f, 1);       // 1: the apps' dock up; 0: hidden below the screen
+    // The billboard's carousel (Recs.featured): titles like the ones being watched and trending ones, in turn.
+    private List<Recs.Pick> carousel = new ArrayList<>();
+    private int carouselIndex;
+    private final Runnable advance = new Runnable() {
+        @Override public void run() {
+            if (running && carousel.size() > 1 && page.target == 0 && !searching && !sheetOpen && !drawerOpen) stepCarousel(1);
+            handler.postDelayed(this, CAROUSEL_MS);
+        }
+    };
+    private Paint lHint;
+    private final RectF banner = new RectF();
+    private String billKind, billBadge;
+    private Paint lBillKind, lPlay, lBadge;
+    private Object billFor;
+    private String billMeta, billName;
+    private int billGeneration = -1;
+    private StaticLayout billText;
+    private Paint lBillName, lBillMeta;
+    private TextPaint lBillText;
+    private final RectF logoRect = new RectF();
+    private final android.graphics.ColorFilter inkLogo = new android.graphics.PorterDuffColorFilter(L_INK, android.graphics.PorterDuff.Mode.SRC_IN);
     private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lRowHead, lQuote, lTip, lDate, lClock, lWeather, lClockQuote;
     private Shader lightGradient;
 
@@ -415,6 +461,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         field = new SearchField(a);
         addView(field);
+        if (Recs.hasKey(a)) zone = Z_HERO;   // the billboard's Play: the dock stays down until the focus goes there
         setContentDescription("Free My TV");
         drawerLayer.setVisibility(INVISIBLE);
         for (int i = 0; i < topFocus.length; i++) {
@@ -461,6 +508,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (tvInputs != null) tvInputs.registerCallback(inputCallback, handler);
         loadResume();
         handler.postDelayed(tick, 15_000);
+        handler.removeCallbacks(advance);
+        handler.postDelayed(advance, CAROUSEL_MS);
         checkNotices();
         if (!again) reload();
         updatePalette();
@@ -483,6 +532,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         okHeld = holdArmed = false;
         Choreographer.getInstance().removeFrameCallback(this);
         handler.removeCallbacks(tick);
+        handler.removeCallbacks(advance);
         handler.removeCallbacks(reloadSoon);
         data.removeListener(this);
         recs.removeListener(this);
@@ -500,7 +550,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         wake();
         cancelReorder(!animated);
         if (searching) exitSearch();
-        zone = Z_SHELF;
+        zone = picksOn() ? Z_HERO : Z_SHELF;
         shelfIndex = 0;
         sheetOpen = false;
         drawerOpen = false;
@@ -517,6 +567,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         if (tab != 0) selectTab(0);
         cardIndex = resumeIndex = 0;
+        lastRow = 0;
         for (Spring s : rowScroll) s.snap(0);
         retarget(!animated);
         motionDirty = true;
@@ -569,12 +620,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int width = MeasureSpec.getSize(widthSpec), height = MeasureSpec.getSize(heightSpec);
         float kk = width / 1920f;
         measure(sky, width, height);
-        measure(heroLayer, width, Math.round(812 * kk));
+        measure(heroLayer, width, height);
         measure(status, Math.round(1160 * kk), Math.round(240 * kk));
         // Sized to what they draw (the glass and its shadow; the grown tiles and their shadows): smaller layers are
         // cheaper for the GPU to composite on every frame of the drawer animation.
-        measure(platter, width, Math.round(320 * kk));
-        measure(tiles, width, Math.round(270 * kk));
+        measure(platter, width, Math.round(220 * kk));
+        measure(tiles, width, Math.round(180 * kk));
         measure(drawerLayer, width, Math.round(600 * kk));
         measure(sheetLayer, width, height);
         measure(toastLayer, Math.round(1000 * kk), Math.round(220 * kk));
@@ -592,8 +643,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         sky.layout(0, 0, width, height);
         place(heroLayer, 0, 0);
         place(status, width - status.getMeasuredWidth(), 0);
-        place(platter, 0, Math.round(750 * kk));
-        place(tiles, 0, Math.round(790 * kk));
+        place(platter, 0, Math.round(860 * kk));
+        place(tiles, 0, Math.round(900 * kk));
         place(drawerLayer, 0, Math.round(470 * kk));
         sheetLayer.layout(0, 0, width, height);
         sheetLayer.setPivotX(width / 2f);
@@ -642,6 +693,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lTab = Ui.text(Ui.medium, 30 * k, L_DIM);
         lTabOn = Ui.text(Ui.semibold, 30 * k, L_INK);
         lField = Ui.text(Ui.medium, 30 * k, L_INK);
+        lBillName = Ui.text(Ui.displaySemibold, 72 * k, L_INK);
+        lBillMeta = Ui.text(Ui.semibold, 27 * k, L_DIM);
+        lBillText = new TextPaint(Ui.text(Ui.medium, 27 * k, L_INK));
+        lBillKind = Ui.text(Ui.semibold, 21 * k, 0xD9FFFFFF);
+        lBillKind.setLetterSpacing(0.2f);
+        lPlay = Ui.text(Ui.semibold, 28 * k, L_INK);
+        lBadge = Ui.text(Ui.semibold, 23 * k, 0xF2FFFFFF);
+        lHint = Ui.text(Ui.semibold, 22 * k, L_DIM);
+        billFor = null;
         lCardTitle = Ui.text(Ui.semibold, 26 * k, L_INK);
         lCardTitle.setLetterSpacing(0.012f);
         lCardMeta = Ui.text(Ui.medium, 22 * k, L_DIM);
@@ -709,7 +769,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (reorderAnim) tilesMoving |= stepReorder(dt, up);
         boolean statusMoving = step(statusFocus, dt);
         boolean heroMoving = heroFocus.step(dt);
-        boolean topMoving = step(topFocus, dt), cardsMoving = step(cardFocus, dt) | step(resumeFocus, dt) | step(rowScroll, dt);
+        boolean topMoving = step(topFocus, dt), cardsMoving = step(cardFocus, dt) | step(resumeFocus, dt) | step(rowScroll, dt)
+                | rowsY.step(dt) | up - featAt < BILL_FADE_MS + 20;
+        boolean pageMoving = page.step(dt), dockMoving = dock.step(dt);
+        cardsMoving |= pageMoving | dockMoving;
+        if (dockMoving) motionDirty = true;
         if (topMoving) status.invalidate();
         heroMoving |= topMoving | cardsMoving;
         boolean drawerItemsMoving = step(drawerFocus, dt);
@@ -728,10 +792,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // glass shows the background where it ended up.
         if (tilesMoving || tilesDirty) tiles.invalidate();
         if (statusMoving || statusDirty || bgFading) status.invalidate();
-        if (heroMoving || heroDirty || heroFading) heroLayer.invalidate();
+        if (heroMoving || heroDirty || heroFading || bgFading) heroLayer.invalidate();   // the billboard card's photo
         if (drawerItemsMoving || drawerDirty || bgFading) drawerLayer.invalidate();
         if (gridMoving || gridDirty) sheetLayer.invalidate();
-        if (drawerMoving || bgFading) sky.invalidate();
+        if (drawerMoving || bgFading || pageMoving) sky.invalidate();
         if (bgFading || (drawerWasMoving && !drawerMoving)) platter.invalidate();
         drawerWasMoving = drawerMoving;
         tilesDirty = statusDirty = heroDirty = drawerDirty = gridDirty = motionDirty = false;
@@ -746,7 +810,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
 
         // Busy: something is moving, or the sheet or the drawer is open.
-        boolean busy = tilesMoving || statusMoving || heroMoving || drawerItemsMoving || gridMoving || drawerMoving
+        boolean busy = tilesMoving || statusMoving || heroMoving || dockMoving || drawerItemsMoving || gridMoving || drawerMoving
                 || sheetMoving || toastFading || heroFading || bgFading || nightMoving || sheetOpen || sheet.value > 0.001f
                 || drawerOpen || drawer.value > 0.001f || toast != null || !toasts.isEmpty();
         idle = !busy;
@@ -776,8 +840,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float lift = -d * shift;
         show(heroLayer, top, lift);
         show(status, top, lift);
-        show(platter, home, lift);
-        show(tiles, home, lift);
+        float down = (1 - dock.value) * DOCK_HIDE * k, up = home * Ui.clamp(dock.value);
+        show(platter, up, lift + down);
+        show(tiles, up, lift + down);
         float da = home * smoothstep(0.1f, 0.6f, dc);
         drawerLayer.setTranslationY((1 - d) * shift);
         drawerLayer.setAlpha(da);
@@ -821,6 +886,47 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void updatePicks() {
         if (labelPaint == null) return;
         updateCards();
+        updateCarousel();
+    }
+
+    /**
+     * New carousel titles: the tab's kind only (Movies, Shows), else its picks; the one on the card stays, if it's
+     * still among them.
+     */
+    private void updateCarousel() {
+        String kind = TAB_KIND[tab];
+        List<Recs.Pick> list = new ArrayList<>();
+        for (Recs.Pick p : recs.featured()) if (kind == null || kind.equals(p.kind)) list.add(p);
+        if (list.size() < 3) {   // few of this kind among them: the tab's own picks fill in
+            for (Recs.Pick p : recs.all(kind)) {
+                if (list.size() >= 8) break;
+                if (p.detailed && p.pkg != null && !list.contains(p)) list.add(p);
+            }
+        }
+        if (samePicks(list, carousel)) return;
+        Recs.Pick shown = carouselIndex < carousel.size() ? carousel.get(carouselIndex) : null;
+        int at = 0;
+        for (int i = 0; shown != null && i < list.size(); i++) if (Recs.key(list.get(i)).equals(Recs.key(shown))) at = i;
+        carousel = list;
+        carouselIndex = at;
+        updateBackground();
+        prepareNext();
+    }
+
+    /** The carousel's next (or previous) title on the card. */
+    private void stepCarousel(int dir) {
+        if (carousel.isEmpty()) return;
+        carouselIndex = (carouselIndex + dir + carousel.size()) % carousel.size();
+        updateBackground();
+        prepareNext();
+    }
+
+    /** The next title's photo and logo, made ahead so the card changes to it in one go. */
+    private void prepareNext() {
+        if (carousel.size() < 2) return;
+        Recs.Pick next = carousel.get((carouselIndex + 1) % carousel.size());
+        recs.backdrop(next);
+        recs.logo(next);
     }
 
     private static boolean samePicks(List<Recs.Pick> a, List<Recs.Pick> b) {
@@ -1398,6 +1504,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * 11 that anti-aliased clip costs the GPU a mask on every frame of a focus animation (measured on a Mi Box 3: most of
      * a 49 ms frame), so there the image is the shader of a rounded rectangle instead, which looks the same.
      */
+    private void roundImage(Canvas c, Bitmap image, RectF cell, float r, float alpha) {
+        int a = Math.round(255 * Ui.clamp(alpha));
+        bitmapPaint.setAlpha(a);
+        imageFill.setAlpha(a);
+        roundImage(c, image, cell, r);
+        bitmapPaint.setAlpha(255);
+        imageFill.setAlpha(255);
+    }
+
     private void roundImage(Canvas c, Bitmap image, RectF cell, float r) {
         if (!Ui.LEGACY) {
             clip.reset();
@@ -1777,6 +1892,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean heroChanged = heroFocus.target != (!sheetOpen && zone == Z_HERO ? 1 : 0);
         heroFocus.target = !sheetOpen && zone == Z_HERO ? 1 : 0;
         if (snap) heroFocus.snap(heroFocus.target);
+        if (zone == Z_RESUME) lastRow = 0;
+        else if (zone == Z_CARDS) lastRow = 1;
+        page.target = !searching && (zone == Z_RESUME || zone == Z_CARDS) ? 1 : 0;
+        if (snap) page.snap(page.target);
+        dock.target = !picksOn() || zone == Z_SHELF || zone == Z_DRAWER || zone == WIDGETS || sheetOpen || reordering ? 1 : 0;
+        if (snap) dock.snap(dock.target);
+        motionDirty = true;
         boolean topChanged = aim(topFocus, !sheetOpen && zone == Z_TOP ? topIndex : -1, snap);
         heroChanged |= aim(cardFocus, !sheetOpen && zone == Z_CARDS ? cardIndex : -1, snap)
                 | aim(resumeFocus, !sheetOpen && zone == Z_RESUME ? resumeIndex : -1, snap) | retargetRows(snap) | topChanged;
@@ -1785,6 +1907,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         statusDirty |= snap || statusChanged;
         heroDirty |= snap || heroChanged;
         drawerDirty |= snap || drawerChanged;
+        if (lightButtons != null) updateBackground();   // the billboard follows the focus (null: still being built)
         spoken.focusMoved();
     }
 
@@ -2119,8 +2242,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             retarget(false);
         } else if (searching) {
             exitSearch();
-        } else if (zone != Z_SHELF) {
-            zone = Z_SHELF;
+        } else if (zone != (picksOn() ? Z_HERO : Z_SHELF)) {
+            zone = picksOn() ? Z_HERO : Z_SHELF;
             retarget(false);
         } else {
             return;
@@ -2259,10 +2382,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (others.isEmpty()) return;
             it = others.get(gridIndex);
             r = focusedCell;
-        } else if (zone == Z_HERO) {
-            Recs.Pick p = currentPick();
-            if (p == null || p.pkg == null) return;
-            it = HomeApps.app(p.pkg, Recs.serviceName(p), p.link);
+        } else if (zone == Z_HERO) {   // the billboard's Play: the featured title
+            if (featItem != null) it = HomeApps.resume(featItem);
+            else if (featPick != null && featPick.pkg != null) it = HomeApps.app(featPick.pkg, Recs.serviceName(featPick), featPick.link);
+            else return;
             r = heroButton;
         } else if (zone == Z_STATUS) {
             if (statusItems.isEmpty()) return;
@@ -2804,8 +2927,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void layoutLight() {
         if (lTab == null) return;
         // Text tabs; the focus pill extends 26 px past the text (the first tab's text starts at the margin).
-        float pad = 26 * k, tabTop = L_TABBAR_TOP * k, tabBottom = (L_TABBAR_TOP + L_TABBAR_H) * k;
+        float top = searching ? L_TABBAR_TOP : L_TABS_TOP;
+        float pad = 26 * k, tabTop = top * k, tabBottom = (top + L_TABBAR_H) * k;
         float x = MARGIN * k - pad;
+        if (!searching) {   // centered, as Netflix's
+            float total = 0;
+            for (int i = 0; i < 3; i++) total += Math.max(lTabOn.measureText(tabs()[i]), lTab.measureText(tabs()[i])) + 2 * pad + (i > 0 ? 4 * k : 0);
+            x = (w - total) / 2;
+        }
         for (int i = 0; i < 3; i++) {
             if (searching) {   // the search field in the tabs' place
                 if (i == 0) topRects[0].set(MARGIN * k, tabTop, (MARGIN + SEARCH_W) * k, tabBottom);
@@ -2842,11 +2971,29 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         spoken.focusMoved();    // new picks under the focused card
     }
 
-    /** The background follows the focused pick (the first one while the focus is elsewhere). */
+    /**
+     * The featured title (the billboard and the background): the focused card; with the focus elsewhere, the card last
+     * focused in the row under the billboard (in search, the first result).
+     */
     private void updateBackground() {
-        Recs.Pick p = cards.isEmpty() ? null : cards.get(zone == Z_CARDS ? Math.min(cardIndex, cards.size() - 1) : 0);
-        Backdrop b = p == null ? null : recs.backdrop(p);
-        if (p == null || b != null) showBackdrop(b);
+        Recs.Pick p = null;
+        WatchNext.Item it = null;
+        if (!searching && zone != Z_RESUME && zone != Z_CARDS && !carousel.isEmpty()) {
+            p = carousel.get(Math.min(carouselIndex, carousel.size() - 1));
+        } else if (zone == Z_RESUME || (zone != Z_CARDS && lastRow == 0 && hasResume())) {
+            if (!resume.isEmpty()) it = resume.get(Math.min(resumeIndex, resume.size() - 1));
+        } else if (!cards.isEmpty()) {
+            p = cards.get(zone == Z_CARDS || !searching ? Math.min(cardIndex, cards.size() - 1) : 0);
+        }
+        if (p != featPick || it != featItem) {
+            featPick = p;
+            featItem = it;
+            featAt = SystemClock.uptimeMillis();
+            heroDirty = true;
+            wake();
+        }
+        Backdrop b = p != null ? recs.backdrop(p) : it != null ? recs.backdrop(it.poster) : null;
+        if ((p == null && it == null) || b != null) showBackdrop(b);
         if (searching && p != null && !p.detailed) recs.detail(p, false, null);   // its genre, length and app
     }
 
@@ -2854,7 +3001,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (index == tab) return;
         tab = index;
         cardIndex = 0;
+        lastRow = 0;
         rowScroll[1].snap(0);
+        rowsY.snap(0);
+        updateCarousel();
         updateCards();
         heroDirty = true;
     }
@@ -2890,7 +3040,20 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         imagePaint.setColorFilter(v);
         if (fading && bgFrom != null) drawLightImage(c, bgFrom, bgTo == null ? 1 - e : 1);
         if (bgTo != null) drawLightImage(c, bgTo, fading ? e : 1);
+        float away = searching ? 1 : Ui.clamp(page.value);   // the card's photo takes its place at rest
+        if (picksOn() && away > 0.004f) {
+            if (fading && bgFrom != null) drawHeroImage(c, bgFrom, (1 - e) * away);
+            if (bgTo != null) drawHeroImage(c, bgTo, (fading ? e : 1) * away);
+        }
         imagePaint.setColorFilter(null);
+    }
+
+    /** The billboard photo at the top right (a little dimmer at night, so the white text around it stays first). */
+    private void drawHeroImage(Canvas c, Backdrop b, float alpha) {
+        if (b.hero == null || alpha <= 0.004f) return;
+        imagePaint.setAlpha(Math.round(255 * Math.min(1, alpha) * tone(1f, 0.86f)));
+        tmp.set(w - Backdrop.HERO_W * w / (float) Backdrop.W, 0, w, Backdrop.HERO_H * h / (float) Backdrop.H);
+        c.drawBitmap(b.hero, null, tmp, imagePaint);
     }
 
     private void drawLightImage(Canvas c, Backdrop b, float alpha) {
@@ -2913,14 +3076,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (HomeData.coinCount() > 0) drawQuotes(c);
             return;
         }
-        String hello = Ui.tr("For You");
-        c.drawText(hello, MARGIN * k - Ui.leftBearing(lTitle, hello), L_TITLE_BASE * k, lTitle);
         // Text tabs (the selected one in bold, in the main text color); with focus on the tabs, the selected one gets
         // the white pill with a shadow and grows a little (the tvOS focus).
         float focus = Ui.clamp(topFocus[tab].value);
         for (int i = 0; i < 3; i++) {
             RectF r = topRects[i];
-            if (i == tab && focus > 0.01f) {
+            if (i == tab) {   // the selected tab on a soft pill; white with the focus on it
                 float s = 1 + 0.05f * focus;
                 cell.set(r.centerX() - r.width() * s / 2, r.centerY() - r.height() * s / 2,
                         r.centerX() + r.width() * s / 2, r.centerY() + r.height() * s / 2);
@@ -2932,13 +3093,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     shadows.draw(c, tmp, rr, SHADOW_BLUR * k, shadow);
                 }
                 fill.setShader(null);
-                fill.setColor(Ui.alpha(0xFFFFFFFF, focus));
+                fill.setColor(blend(tone(0x99FFFFFF, 0x29FFFFFF), 0xFFFFFFFF, focus));
                 c.drawRoundRect(cell, rr, rr, fill);
             }
             Paint p = i == tab ? lTabOn : lTab;
             if (i == tab) lTabOn.setColor(blend(tone(L_INK, WHITE), L_INK, focus));   // always dark on the white pill
             c.drawText(tabs()[i], r.centerX() - p.measureText(tabs()[i]) / 2, r.centerY() + Ui.halfCap(p), p);
         }
+        drawBillboard(c);
         drawRows(c);
         if (HomeData.coinCount() > 0) drawQuotes(c);
     }
@@ -2972,7 +3134,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** The rows' card rectangles for the current scroll (cheap: done on every draw and before any focus move). */
     private void layoutRows() {
         float cw = R_CARD_W * k, ch = R_CARD_H * k, g = R_GAP * k, left = MARGIN * k;
-        float top1 = R1_TOP * k, topPicks = (hasResume() ? R2_TOP : R1_TOP) * k;
+        // In search, the results row under the field; else one row under the billboard, the other slid away.
+        float win = rowsTop(), shift = (R2_TOP - R1_TOP) * k;
+        float top1 = win - rowsY.value, topPicks = (hasResume() ? win + shift : win) - rowsY.value;
+        if (searching) top1 = topPicks = R1_TOP * k;
         for (int i = 0; i < MAX_RESUME; i++) {
             float x = left + i * (cw + g) - rowScroll[0].value;
             resumeRects[i].set(x, top1, x + cw, top1 + ch);
@@ -2997,6 +3162,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             rowScroll[row].target = target;
             if (snap) rowScroll[row].snap(target);
         }
+        float y = !searching && lastRow == 1 && hasResume() ? (R2_TOP - R1_TOP) * k : 0;
+        changed |= rowsY.target != y;
+        rowsY.target = y;
+        if (snap) rowsY.snap(y);
         return changed;
     }
 
@@ -3008,8 +3177,176 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (!head.isEmpty()) drawRow(c, head, cardRects[0].top, false);
             return;
         }
-        if (!resume.isEmpty()) drawRow(c, Ui.tr("Continue watching"), resumeRects[0].top, true);
-        if (!cards.isEmpty()) drawRow(c, tab == 0 ? Ui.tr("Trending") : tabs()[tab], cardRects[0].top, false);
+        if (hasResume()) drawFadingRow(c, Ui.tr("Continue watching"), resumeRects[0].top, true);
+        if (!cards.isEmpty()) drawFadingRow(c, tab == 0 ? Ui.tr("Trending") : tabs()[tab], cardRects[0].top, false);
+        // On the last row, a hint that the apps are one step down.
+        if ((zone == Z_CARDS || zone == Z_RESUME && cards.isEmpty()) && dock.target == 0 && !shelf.isEmpty()) {
+            String hint = Ui.tr("Apps");
+            float cy = h - 34 * k, tw = lHint.measureText(hint), x = (w - tw - 34 * k) / 2;
+            lHint.setColor(tone(L_DIM, 0xFF98989D));
+            Symbols.draw(getContext(), c, "chevron_down", x + 12 * k, cy, 24 * k, lHint.getColor());
+            c.drawText(hint, x + 34 * k, cy + Ui.halfCap(lHint), lHint);
+        }
+    }
+
+    /** Where the row under the billboard sits: peeking below the card, or under the text once the card is away. */
+    private float rowsTop() {
+        float t = Ui.clamp(page.value);
+        return (A_ROW_TOP + (R2_TOP - A_ROW_TOP) * t) * k;
+    }
+
+    /**
+     * Under the card one row shows; with the focus in the rows, two (the next one below). A row sliding away fades out
+     * on the way, and all of them while the dock is up.
+     */
+    private void drawFadingRow(Canvas c, String header, float rowTop, boolean isResume) {
+        float d = rowsTop() - rowTop, allowed = (R2_TOP - R1_TOP) * k * Ui.clamp(page.value);
+        float a = Ui.clamp(1 - (d > 0 ? d : -d - allowed) / (140 * k)) * (1 - Ui.clamp(dock.value));
+        if (a <= 0.01f) return;
+        if (a >= 0.99f) {
+            drawRow(c, header, rowTop, isResume);
+            return;
+        }
+        int saved = c.saveLayerAlpha(0, 0, w, h, Math.round(255 * a));
+        drawRow(c, header, rowTop, isResume);
+        c.restoreToCount(saved);
+    }
+
+    /**
+     * The billboard (Netflix's): at rest a rounded card with the featured title's photo; at its bottom left a small
+     * SERIES or MOVIE, the logo (or the name, when it has none), the details, two lines of summary and the Play button;
+     * the app at the bottom right. With the focus in the rows, the card fades and the text moves to the top left. The
+     * text fades in when the title changes and is made again only when the title or its details change.
+     */
+    private void drawBillboard(Canvas c) {
+        Recs.Pick p = featPick;
+        WatchNext.Item it = featItem;
+        if (p == null && it == null) return;
+        String meta = p != null ? p.meta : it.meta, summary = p != null ? p.overview : it.description;
+        Object who = p != null ? p : it;
+        if (who != billFor || meta != billMeta || billGeneration != Ui.generation || (billText == null) != (summary == null)
+                || !java.util.Objects.equals(billName, p != null ? p.title : it.title)) {
+            billFor = who;
+            billMeta = meta;
+            billGeneration = Ui.generation;
+            billName = p != null ? p.title : it.title;
+            billKind = p == null ? null : (p.because != null ? Ui.trf("Because you watched {title}", "title", p.because)
+                    : p.kind.equals("tv") ? Ui.tr("Series") : Ui.tr("Movie")).toUpperCase(Ui.locale());
+            billBadge = p == null || p.app == null ? null : Recs.serviceName(p);
+            billText = summary == null ? null : StaticLayout.Builder.obtain(summary, 0, summary.length(), lBillText, Math.round(B_TEXT_W * k))
+                    .setMaxLines(2).setEllipsize(TextUtils.TruncateAt.END).setIncludePad(false).build();
+        }
+        float t = Ui.clamp(page.value), u = 1 - t;
+        long up = SystemClock.uptimeMillis();
+        float a = smoothstep(0, 1, Ui.clamp((up - featAt) / (float) BILL_FADE_MS));
+        if (u > 0.004f) drawBanner(c, u, a);
+        float x = mix(MARGIN + CARD_PAD, MARGIN, t) * k, rise = 12 * k * (1 - a);
+        int ink = blend(0xFFFFFFFF, tone(L_INK, WHITE), t), dim = blend(0xD9FFFFFF, tone(L_DIM, 0xFFC7C7CC), t);
+        float logoBottom = mix(A_LOGO_BOTTOM, B_LOGO_BOTTOM, t) * k + rise, artTop;
+        Bitmap logo = p == null ? null : recs.logo(p);
+        if (logo != null) {
+            float s = Math.min(mix(A_LOGO_W, B_LOGO_W, t) * k / logo.getWidth(), mix(A_LOGO_H, B_LOGO_H, t) * k / logo.getHeight());
+            logoRect.set(x, logoBottom - logo.getHeight() * s, x + logo.getWidth() * s, logoBottom);
+            imagePaint.setAlpha(Math.round(255 * a));
+            imagePaint.setColorFilter(t > 0.5f && night < 0.5f && recs.lightLogo(p) ? inkLogo : null);   // white on the day background
+            c.drawBitmap(logo, null, logoRect, imagePaint);
+            imagePaint.setColorFilter(null);
+            imagePaint.setAlpha(255);
+            artTop = logoRect.top;
+        } else if (p == null || recs.noLogo(p)) {   // else its logo is on the way: nothing, rather than the name flashing first
+            fitPaint.set(lBillName);
+            String name = TextUtils.ellipsize(billName == null ? "" : billName, fitPaint, B_NAME_W * k, TextUtils.TruncateAt.END).toString();
+            lBillName.setColor(Ui.alpha(ink, a));
+            float base = logoBottom - 14 * k;
+            c.drawText(name, x - Ui.leftBearing(lBillName, name), base, lBillName);
+            artTop = base - 2 * Ui.halfCap(lBillName);
+        } else {
+            artTop = logoBottom - mix(A_LOGO_H, B_LOGO_H, t) * k * 0.6f;
+        }
+        if (billKind != null) {
+            lBillKind.setColor(Ui.alpha(dim, a));
+            c.drawText(billKind, x, artTop - 18 * k, lBillKind);
+        }
+        if (meta != null && !meta.isEmpty()) {
+            lBillMeta.setColor(Ui.alpha(dim, a));
+            c.drawText(meta, x, mix(A_META_BASE, B_META_BASE, t) * k + rise, lBillMeta);
+        }
+        if (billText != null) {
+            lBillText.setColor(Ui.alpha(blend(0xE6FFFFFF, tone(0xFF3A3A3C, 0xE0FFFFFF), t), a));
+            c.save();
+            c.translate(x, mix(A_TEXT_TOP, B_TEXT_TOP, t) * k + rise);
+            billText.draw(c);
+            c.restore();
+        }
+        if (u > 0.01f) drawPlay(c, x, A_PLAY_TOP * k, u, it != null);
+    }
+
+    /** The card: a soft shadow, then the photo (cross-fading like the background) with rounded corners. */
+    private void drawBanner(Canvas c, float alpha, float textIn) {
+        banner.set(MARGIN * k, CARD_TOP * k, CONTENT_R * k, CARD_BOTTOM * k);
+        float r = CARD_RADIUS * k;
+        tmp.set(banner);
+        tmp.offset(0, 14 * k);
+        shadowDeep.setColor(Ui.alpha(0xFF000000, tone(0.2f, 0.45f) * alpha));
+        shadows.draw(c, tmp, r, DEEP_BLUR * k, shadowDeep);
+        fill.setShader(null);
+        fill.setColor(Ui.alpha(0xFF1C1C1E, alpha));
+        c.drawRoundRect(banner, r, r, fill);
+        long up = SystemClock.uptimeMillis();
+        float e = bgFadeAt == 0 ? 1 : fadeEase(bgFadeAt, up);
+        if (bgFadeAt != 0 && bgFrom != null && bgFrom.banner != null) roundImage(c, bgFrom.banner, banner, r, alpha);
+        if (bgTo != null && bgTo.banner != null) roundImage(c, bgTo.banner, banner, r, alpha * (bgFadeAt != 0 ? e : 1));
+        if (carousel.size() > 1 && featPick != null && carousel.contains(featPick)) {   // the carousel's dots
+            float dot = 8 * k, wide = 26 * k, gap = 10 * k, cy = banner.bottom - 22 * k;
+            float total = (carousel.size() - 1) * (dot + gap) + wide, x = banner.centerX() - total / 2;
+            fill.setShader(null);
+            for (int i = 0; i < carousel.size(); i++) {
+                float dw = i == carouselIndex ? wide : dot;
+                fill.setColor(Ui.alpha(0xFFFFFFFF, alpha * textIn * (i == carouselIndex ? 0.95f : 0.4f)));
+                cell.set(x, cy - dot / 2, x + dw, cy + dot / 2);
+                c.drawRoundRect(cell, dot / 2, dot / 2, fill);
+                x += dw + gap;
+            }
+        }
+        if (billBadge != null) {   // the app it opens in, at the bottom right
+            float bw = lBadge.measureText(billBadge) + 44 * k, bh = 50 * k;
+            float right = banner.right - 36 * k, cy = (A_PLAY_TOP + PLAY_H / 2) * k;
+            cell.set(right - bw, cy - bh / 2, right, cy + bh / 2);
+            fill.setColor(Ui.alpha(0x8C000000, alpha * textIn));
+            c.drawRoundRect(cell, 12 * k, 12 * k, fill);
+            lBadge.setAlpha(Math.round(242 * alpha * textIn));
+            c.drawText(billBadge, cell.left + 22 * k, cy + Ui.halfCap(lBadge), lBadge);
+        }
+    }
+
+    /** ▶ Play (or Resume): translucent at rest, white with the focus on it (heroButton: where the app opens from). */
+    private void drawPlay(Canvas c, float x, float top, float alpha, boolean resuming) {
+        float f = Ui.clamp(heroFocus.value), s = 1 + 0.06f * f;
+        String label = resuming ? Ui.tr("Resume") : Ui.tr("Play");
+        float bw = 56 * k + lPlay.measureText(label) + 40 * k, bh = PLAY_H * k;
+        heroButton.set(x, top, x + bw, top + bh);
+        cell.set(heroButton.centerX() - bw * s / 2, heroButton.centerY() - bh * s / 2, heroButton.centerX() + bw * s / 2, heroButton.centerY() + bh * s / 2);
+        float rr = cell.height() / 2;
+        if (f > 0.01f) {
+            tmp.set(cell);
+            tmp.offset(0, 8 * k * f);
+            shadow.setColor(Ui.alpha(0xFF000000, 0.35f * f * alpha));
+            shadows.draw(c, tmp, rr, SHADOW_BLUR * k, shadow);
+        }
+        fill.setShader(null);
+        fill.setColor(Ui.alpha(blend(0x47FFFFFF, 0xFFFFFFFF, f), alpha));
+        c.drawRoundRect(cell, rr, rr, fill);
+        int color = Ui.alpha(blend(0xFFFFFFFF, L_INK, f), alpha);
+        Symbols.draw(getContext(), c, "play", cell.left + 42 * k * s, cell.centerY(), 30 * k * s, color);
+        lPlay.setColor(color);
+        c.save();
+        c.scale(s, s, cell.left, cell.centerY());
+        c.drawText(label, cell.left + 70 * k, cell.centerY() + Ui.halfCap(lPlay), lPlay);
+        c.restore();
+    }
+
+    private static float mix(float a, float b, float t) {
+        return a + (b - a) * t;
     }
 
     /** A row: its header, then the cards on screen, the focused one last (on top of its neighbors). */
@@ -3095,7 +3432,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (title == null) title = "";
         fitPaint.set(lCardTitle);
         c.drawText(TextUtils.ellipsize(title, fitPaint, bw, TextUtils.TruncateAt.END).toString(), base.left, base.bottom + R_TITLE * k, lCardTitle);
-        if (f > 0.01f && meta != null && !meta.isEmpty()) {
+        if (searching && f > 0.01f && meta != null && !meta.isEmpty()) {   // elsewhere the billboard has the details
             fitPaint.set(lCardMeta);
             int alpha = lCardMeta.getAlpha();
             lCardMeta.setAlpha(Math.round(alpha * f));
@@ -3125,6 +3462,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         boolean had = !resume.isEmpty();
         resume = items;
+        recs.feature(items);   // the carousel: titles like these
         resumeIndex = Math.min(resumeIndex, Math.max(0, items.size() - 1));
         if (zone == Z_RESUME && items.isEmpty()) zone = cards.isEmpty() ? Z_SHELF : Z_CARDS;
         if (had == items.isEmpty()) retargetRows(true);   // the picks row moved up or down: no slide
@@ -3194,7 +3532,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 // Up from an empty shelf too: move()'s older zones (the hero, the corner capsule) aren't drawn any more.
                 if (dy >= 0) return false;
                 float x = shelf.isEmpty() ? w / 2f : tileRects[shelfIndex].centerX();
-                if (!cards.isEmpty()) {
+                if (!cards.isEmpty() && !(lastRow == 0 && hasResume())) {
                     zone = Z_CARDS;
                     cardIndex = nearestVisible(cardRects, cards.size(), x);
                     updateBackground();
@@ -3218,6 +3556,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     if (hasResume()) {
                         zone = Z_RESUME;
                         resumeIndex = nearestVisible(resumeRects, resume.size(), cardRects[cardIndex].centerX());
+                    } else if (canPlay()) {
+                        zone = Z_HERO;
                     } else {
                         zone = Z_TOP;
                         topIndex = topStart();     // as on Apple TV: moving up to the tabs focuses the selected tab
@@ -3233,9 +3573,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     if (next == resumeIndex) return true;
                     resumeIndex = next;
                 } else if (dy < 0) {
-                    if (!picksOn() && lightButtons.isEmpty()) return true;
-                    zone = Z_TOP;
-                    topIndex = topStart();
+                    if (canPlay()) {
+                        zone = Z_HERO;
+                    } else {
+                        if (!picksOn() && lightButtons.isEmpty()) return true;
+                        zone = Z_TOP;
+                        topIndex = topStart();
+                    }
                 } else if (!cards.isEmpty()) {
                     zone = Z_CARDS;
                     cardIndex = nearestVisible(cardRects, cards.size(), resumeRects[resumeIndex].centerX());
@@ -3243,6 +3587,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 } else {
                     zone = Z_SHELF;
                     if (!shelf.isEmpty()) shelfIndex = nearest(tileRects, tileRects.length, resumeRects[resumeIndex].centerX());
+                }
+                break;
+            case Z_HERO:
+                if (dx != 0) {
+                    if (!browseFeatured(dx)) return true;
+                } else if (dy < 0) {
+                    if (!picksOn() && lightButtons.isEmpty()) return true;
+                    zone = Z_TOP;
+                    topIndex = topStart();
+                } else if (lastRow == 0 && hasResume() || cards.isEmpty() && hasResume()) {
+                    zone = Z_RESUME;
+                } else if (!cards.isEmpty()) {
+                    zone = Z_CARDS;
+                } else {
+                    zone = Z_SHELF;
                 }
                 break;
             case Z_TOP:
@@ -3254,7 +3613,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     if (topIndex < 3 && !searching) selectTab(topIndex);   // like Apple TV tabs: focusing a tab selects it
                 } else if (dy > 0) {
                     float x = topRects[topIndex].centerX();
-                    if (hasResume()) {
+                    if (canPlay()) {
+                        zone = Z_HERO;
+                    } else if (hasResume()) {
                         zone = Z_RESUME;
                         resumeIndex = nearestVisible(resumeRects, resume.size(), x);
                     } else if (!cards.isEmpty()) {
@@ -3283,9 +3644,34 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         return searching ? 0 : picksOn() ? tab : 3;
     }
 
-    /** Continue watching is on screen: there's something in it, and no search is open. */
+    /** The billboard's Play can take the focus: the card is there, with a title. */
+    private boolean canPlay() {
+        return !searching && picksOn() && (featPick != null || featItem != null);
+    }
+
+    /** ← → on Play: the previous or next title of the row under the billboard. */
+    private boolean browseFeatured(int dx) {
+        if (!carousel.isEmpty()) {
+            stepCarousel(dx);
+            handler.removeCallbacks(advance);   // a full turn on this one before moving on
+            handler.postDelayed(advance, CAROUSEL_MS);
+            return true;
+        }
+        if (featItem != null) {
+            int next = Math.max(0, Math.min(resume.size() - 1, resumeIndex + dx));
+            if (next == resumeIndex) return false;
+            resumeIndex = next;
+        } else {
+            int next = Math.max(0, Math.min(cards.size() - 1, cardIndex + dx));
+            if (next == cardIndex) return false;
+            cardIndex = next;
+        }
+        return true;
+    }
+
+    /** Continue watching is on screen: on Explore, with something in it, and no search open. */
     private boolean hasResume() {
-        return !searching && !resume.isEmpty();
+        return !searching && tab == 0 && !resume.isEmpty();
     }
 
     // MARK: - Search
